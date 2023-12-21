@@ -6,7 +6,7 @@ module suilend::lending_market {
     use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
-    use suilend::reserve::{Self, Reserve, ReserveTreasury, ReserveConfig};
+    use suilend::reserve::{Self, Reserve, ReserveTreasury, ReserveConfig, CToken};
     use std::vector::{Self};
     use std::debug::{Self};
     use std::string::{Self};
@@ -113,5 +113,28 @@ module suilend::lending_market {
 
         let ctokens = coin::from_balance(ctoken_balance, ctx);
         transfer::public_transfer(ctokens, tx_context::sender(ctx));
+    }
+
+    public entry fun deposit_ctokens_into_obligation<P, T>(
+        lending_market: &mut LendingMarket<P>, 
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        deposit: Coin<CToken<P, T>>,
+        _ctx: &mut TxContext
+    ) {
+        let obligation = object_bag::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        let reserve_treasury: &mut ReserveTreasury<P, T> = bag::borrow_mut(
+            &mut lending_market.reserve_treasuries, 
+            Name<T> {}
+        );
+
+        obligation::deposit<P, T>(
+            obligation, 
+            reserve::reserve_id(reserve_treasury),
+            coin::into_balance(deposit), 
+        );
     }
 }

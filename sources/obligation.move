@@ -5,6 +5,7 @@ module suilend::obligation {
     use std::vector::{Self};
     use sui::bag::{Self, Bag};
     use sui::tx_context::{Self, TxContext};
+    use suilend::reserve::{Self, Reserve, CToken};
 
     friend suilend::lending_market;
 
@@ -50,6 +51,56 @@ module suilend::obligation {
             allowed_borrow_value_usd: decimal::from(0),
             unhealthy_borrow_value_usd: decimal::from(0)
         }
+    }
+
+    public(friend) fun deposit<P, T>(
+        obligation: &mut Obligation<P>,
+        reserve_id: u64,
+        ctokens: Balance<CToken<P, T>>,
+    ) {
+        let deposit = find_or_add_deposit(obligation, reserve_id);
+        deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount + balance::value(&ctokens);
+        add_to_balance_bag(obligation, ctokens);
+    }
+
+    // used to index into the balance bag
+    struct Key<phantom T> has copy, drop, store {}
+
+    fun add_to_balance_bag<P, T>(
+        obligation: &mut Obligation<P>,
+        ctokens: Balance<T>,
+    ) {
+        if(bag::contains(&obligation.balances, Key<T>{})) {
+            let deposit = bag::borrow_mut(&mut obligation.balances, Key<T>{});
+            balance::join(deposit, ctokens);
+        } else {
+            bag::add(&mut obligation.balances, Key<T>{}, ctokens);
+        };
+    }
+
+    fun find_or_add_deposit<P>(
+        obligation: &mut Obligation<P>,
+        reserve_id: u64,
+    ): &mut Deposit<P> {
+        let i = 0;
+        while (i < vector::length(&obligation.deposits)) {
+            let deposit = vector::borrow_mut(&mut obligation.deposits, i);
+            if (deposit.reserve_id == reserve_id) {
+                return deposit
+            };
+
+            i = i + 1;
+        };
+
+        let deposit = Deposit<P> {
+            reserve_id: reserve_id,
+            deposited_ctoken_amount: 0,
+            market_value: decimal::from(0)
+        };
+
+        vector::push_back(&mut obligation.deposits, deposit);
+        let length = vector::length(&obligation.deposits);
+        vector::borrow_mut(&mut obligation.deposits, length - 1)
     }
 
 }
