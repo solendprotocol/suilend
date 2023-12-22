@@ -14,7 +14,10 @@ module suilend::test_helpers {
         ReserveConfig,
         CToken
     };
-    use sui::coin::{Self, Coin};
+    use sui::transfer::{Self};
+    use sui::coin::{Self, Coin, CoinMetadata};
+    use std::option::{Self, Option};
+    use std::vector::{Self};
 
     public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address): LendingMarketOwnerCap<P> {
         test_scenario::next_tx(scenario, owner);
@@ -77,26 +80,29 @@ module suilend::test_helpers {
         }
     }
 
-    public fun add_reserve<P, T>(
+    public fun add_reserve<P, T: drop>(
         scenario: &mut Scenario, 
         owner: address,
         owner_cap: &LendingMarketOwnerCap<P>,
         price: u256,
         config: ReserveConfig,
-        clock: &Clock
+        clock: &Clock,
     ) {
         test_scenario::next_tx(scenario, owner);
         {
             let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let metadata = test_scenario::take_from_sender<CoinMetadata<T>>(scenario);
             lending_market::add_reserve<P, T>(
                 owner_cap,
                 &mut lending_market,
                 price,
                 config,
+                &metadata,
                 clock,
                 test_scenario::ctx(scenario)
             );
 
+            test_scenario::return_to_sender<CoinMetadata<T>>(scenario, metadata);
             test_scenario::return_shared(lending_market);
         };
     }
@@ -163,5 +169,54 @@ module suilend::test_helpers {
 
             test_scenario::return_shared(lending_market);
         };
+    }
+
+    public fun borrow<P, T>(
+        scenario: &mut Scenario, 
+        user: address,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+        amount: u64
+    ) {
+        test_scenario::next_tx(scenario, user);
+        {
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            lending_market::borrow<P, T>(
+                &mut lending_market, 
+                obligation_owner_cap,
+                clock,
+                amount,
+                test_scenario::ctx(scenario)
+            );
+
+            test_scenario::return_shared(lending_market);
+        };
+    }
+
+    public fun withdraw<P, T>(
+        scenario: &mut Scenario, 
+        user: address,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+        amount: u64
+    ): Coin<T> {
+        test_scenario::next_tx(scenario, user);
+        {
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            lending_market::withdraw<P, T>(
+                &mut lending_market, 
+                obligation_owner_cap,
+                clock,
+                amount,
+                test_scenario::ctx(scenario)
+            );
+
+            test_scenario::return_shared(lending_market);
+        };
+
+        test_scenario::next_tx(scenario, user);
+        {
+            test_scenario::take_from_sender<Coin<T>>(scenario)
+        }
     }
 }

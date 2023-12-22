@@ -12,10 +12,11 @@ module suilend::lending_market {
     use std::string::{Self};
     use suilend::decimal::{Self, Decimal};
     use suilend::obligation::{Self, Obligation};
-    use sui::coin::{Self, Coin};
+    use sui::coin::{Self, Coin, CoinMetadata};
 
     /* errors */
     const ENotAOneTimeWitness: u64 = 0;
+    const EObligationNotHealthy: u64 = 1;
 
     struct LendingMarket<phantom P> has key {
         id: UID,
@@ -64,16 +65,22 @@ module suilend::lending_market {
         // scaled by 10^18
         price: u256,
         config: ReserveConfig,
+        coin_metadata: &CoinMetadata<T>,
         clock: &Clock,
         _ctx: &mut TxContext
     ) {
 
         let reserve_id = vector::length(&lending_market.reserves);
-        let (reserve, reserve_treasury) = reserve::create_reserve<P, T>(config, price, clock, reserve_id);
+        let (reserve, reserve_treasury) = reserve::create_reserve<P, T>(
+            config, 
+            coin_metadata, 
+            price, 
+            clock, 
+            reserve_id
+        );
 
         vector::push_back(&mut lending_market.reserves, reserve);
         bag::add(&mut lending_market.reserve_treasuries, Name<T> {}, reserve_treasury);
-        debug::print(&reserve_id);
     }
 
     public entry fun create_obligation<P>(
@@ -135,6 +142,118 @@ module suilend::lending_market {
             obligation, 
             reserve::reserve_id(reserve_treasury),
             coin::into_balance(deposit), 
+        );
+    }
+
+    fun find_obligation<P>(
+        lending_market: &mut LendingMarket<P>, 
+        obligation_owner_cap: &ObligationOwnerCap<P>
+    ): &mut Obligation<P> {
+        object_bag::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        )
+    }
+
+    fun find_reserve<P, T>(
+        lending_market: &mut LendingMarket<P>, 
+    ): (&mut Reserve<P>, &mut ReserveTreasury<P, T>) {
+        let reserve_treasury: &mut ReserveTreasury<P, T> = bag::borrow_mut(
+            &mut lending_market.reserve_treasuries, 
+            Name<T> {}
+        );
+        let reserve: &mut Reserve<P> = vector::borrow_mut(
+            &mut lending_market.reserves, 
+            reserve::reserve_id(reserve_treasury)
+        );
+
+        (reserve, reserve_treasury)
+    }
+
+    public entry fun borrow<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
+        let obligation = object_bag::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        let refreshed_ticket = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let reserve_treasury: &mut ReserveTreasury<P, T> = bag::borrow_mut(
+            &mut lending_market.reserve_treasuries, 
+            Name<T> {}
+        );
+
+        let reserve = vector::borrow_mut(
+            &mut lending_market.reserves, 
+            reserve::reserve_id(reserve_treasury)
+        );
+
+        let liquidity = reserve::borrow_liquidity<P, T>(
+            reserve, 
+            reserve_treasury, 
+            clock,
+            amount
+        );
+
+        obligation::borrow<P, T>(
+            refreshed_ticket, 
+            obligation, 
+            reserve, 
+            reserve::reserve_id(reserve_treasury), 
+            clock, 
+            amount
+        );
+
+        transfer::public_transfer(
+            coin::from_balance(liquidity, ctx), 
+            tx_context::sender(ctx)
+        );
+    }
+
+    public entry fun withdraw<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
+        let obligation = object_bag::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        let refreshed_ticket = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let reserve_treasury: &mut ReserveTreasury<P, T> = bag::borrow_mut(
+            &mut lending_market.reserve_treasuries, 
+            Name<T> {}
+        );
+
+        let reserve = vector::borrow_mut(
+            &mut lending_market.reserves, 
+            reserve::reserve_id(reserve_treasury)
+        );
+
+        let ctokens = obligation::withdraw<P, T>(
+            refreshed_ticket, 
+            obligation, 
+            reserve, 
+            reserve::reserve_id(reserve_treasury), 
+            clock, 
+            amount
+        );
+
+        let tokens = reserve::redeem_ctokens<P, T>(reserve, reserve_treasury, ctokens, clock);
+
+        transfer::public_transfer(
+            coin::from_balance(tokens, ctx), 
+            tx_context::sender(ctx)
         );
     }
 }

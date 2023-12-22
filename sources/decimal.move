@@ -19,10 +19,20 @@ module suilend::decimal {
         }
     }
 
+    public fun from_bps(v: u64): Decimal {
+        Decimal {
+            value: (v as u256) * WAD / 10_000
+        }
+    }
+
     public fun from_scaled_val(v: u256): Decimal {
         Decimal {
             value: v
         }
+    }
+
+    public fun to_scaled_val(v: Decimal): u256 {
+        v.value
     }
 
     public fun add(a: Decimal, b: Decimal): Decimal {
@@ -59,6 +69,22 @@ module suilend::decimal {
 
     public fun eq(a: Decimal, b: Decimal): bool {
         a.value == b.value
+    }
+
+    public fun ge(a: Decimal, b: Decimal): bool {
+        a.value >= b.value
+    }
+
+    public fun gt(a: Decimal, b: Decimal): bool {
+        a.value > b.value
+    }
+
+    public fun le(a: Decimal, b: Decimal): bool {
+        a.value <= b.value
+    }
+
+    public fun lt(a: Decimal, b: Decimal): bool {
+        a.value < b.value
     }
 }
 

@@ -6,11 +6,19 @@ module suilend::reserve {
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor};
     use std::vector::{Self};
     use sui::clock::{Self, Clock};
+    use sui::coin::{Self, CoinMetadata};
+    use sui::math::{Self, pow};
 
     friend suilend::lending_market;
     friend suilend::obligation;
 
     struct CToken<phantom P, phantom T> has drop {}
+
+    /* constants */
+    const PRICE_STALENESS_THRESHOLD_S: u64 = 60;
+
+    /* errors */
+    const EPriceStale: u64 = 0;
 
     // temporary price struct until we integrate with pyth
     struct Price has store {
@@ -78,6 +86,7 @@ module suilend::reserve {
 
     struct Reserve<phantom P> has store {
         config: ReserveConfig,
+        mint_decimals: u8,
 
         price: Decimal,
         price_last_update_timestamp_s: u64,
@@ -106,18 +115,20 @@ module suilend::reserve {
 
     public(friend) fun create_reserve<P, T>(
         config: ReserveConfig, 
+        coin_metadata: &CoinMetadata<T>,
         price: u256, 
         clock: &Clock, 
-        reserve_id: u64
+        reserve_id: u64,
     ): (Reserve<P>, ReserveTreasury<P, T>) {
         let reserve = Reserve {
             config,
+            mint_decimals: coin::get_decimals(coin_metadata),
             price: decimal::from_scaled_val(price),
             price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             available_amount: 0,
             ctoken_supply: 0,
             borrowed_amount: decimal::from(0),
-            cumulative_borrow_rate: decimal::from(0),
+            cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             fees_accumulated: decimal::from(0)
         };
@@ -129,6 +140,34 @@ module suilend::reserve {
         };
 
         (reserve, reserve_treasury)
+    }
+
+    public fun price<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+        let cur_time_s = clock::timestamp_ms(clock) / 1000;
+        assert!(
+            cur_time_s - reserve.price_last_update_timestamp_s <= PRICE_STALENESS_THRESHOLD_S, 
+            EPriceStale
+        );
+
+        reserve.price
+    }
+
+    public fun market_value<P>(
+        reserve: &Reserve<P>, 
+        clock: &Clock, 
+        liquidity_amount: Decimal
+    ): Decimal {
+        div(
+            mul(
+                price(reserve, clock),
+                liquidity_amount
+            ),
+            decimal::from(pow(10, reserve.mint_decimals))
+        )
+    }
+
+    public fun cumulative_borrow_rate<P>(reserve: &Reserve<P>): Decimal {
+        reserve.cumulative_borrow_rate
     }
 
     public fun total_supply<P>(reserve: &Reserve<P>): Decimal {
@@ -152,8 +191,20 @@ module suilend::reserve {
         decimal::from_percent(5)
     }
 
+    public fun open_ltv<P>(reserve: &Reserve<P>): Decimal {
+        decimal::from_percent(reserve.config.open_ltv_pct)
+    }
+
+    public fun close_ltv<P>(reserve: &Reserve<P>): Decimal {
+        decimal::from_percent(reserve.config.close_ltv_pct)
+    }
+
+    public fun borrow_weight<P>(reserve: &Reserve<P>): Decimal {
+        decimal::from_bps(reserve.config.borrow_weight_bps)
+    }
+
     // compound interest every second
-    fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
+    public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed = decimal::from(cur_time_s - reserve.interest_last_update_timestamp_s);
         if (eq(time_elapsed, decimal::from(0))) {
@@ -226,7 +277,7 @@ module suilend::reserve {
         balance::increase_supply(&mut reserve_treasury.ctoken_supply, new_ctokens)
     }
 
-    public(friend) fun redeem_ctokens_and_withdraw_liquidity<P, T>(
+    public(friend) fun redeem_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         reserve_treasury: &mut ReserveTreasury<P, T>, 
         ctokens: Balance<CToken<P, T>>, 
@@ -271,7 +322,6 @@ module suilend::reserve {
     ) {
         compound_interest(reserve, clock);
 
-        // FIXME: check borrow limits
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
         reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
 
