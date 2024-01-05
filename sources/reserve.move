@@ -8,6 +8,8 @@ module suilend::reserve {
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self, pow};
+    use std::option::{Self, Option};
+    use std::debug;
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -35,6 +37,7 @@ module suilend::reserve {
         borrow_weight_bps: u64,
         deposit_limit: u64,
         borrow_limit: u64,
+        liquidation_bonus_pct: u8,
 
         // fees
         borrow_fee_bps: u64,
@@ -64,6 +67,7 @@ module suilend::reserve {
             borrow_weight_bps,
             deposit_limit,
             borrow_limit,
+            liquidation_bonus_pct: 5,
             borrow_fee_bps,
             spread_fee_bps,
             liquidation_fee_bps,
@@ -79,13 +83,13 @@ module suilend::reserve {
         );
     }
 
-    struct InterestRateModel has store {
+    struct InterestRateModel has store, drop {
         utils: vector<u8>,
         aprs: vector<u64>
     }
 
     struct Reserve<phantom P> has store {
-        config: ReserveConfig,
+        config: Option<ReserveConfig>,
         mint_decimals: u8,
 
         price: Decimal,
@@ -121,7 +125,7 @@ module suilend::reserve {
         reserve_id: u64,
     ): (Reserve<P>, ReserveTreasury<P, T>) {
         let reserve = Reserve {
-            config,
+            config: option::some(config),
             mint_decimals: coin::get_decimals(coin_metadata),
             price: decimal::from_scaled_val(price),
             price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
@@ -142,6 +146,29 @@ module suilend::reserve {
         (reserve, reserve_treasury)
     }
 
+    public(friend) fun update_reserve_config<P>(
+        reserve: &mut Reserve<P>, 
+        config: ReserveConfig, 
+    ) {
+        let old_config = option::extract(&mut reserve.config);
+        option::fill(&mut reserve.config, config);
+
+        let ReserveConfig { 
+            id, 
+            open_ltv_pct: _, 
+            close_ltv_pct: _, 
+            borrow_weight_bps: _, 
+            deposit_limit: _, 
+            borrow_limit: _, 
+            liquidation_bonus_pct: _,
+            borrow_fee_bps: _,
+            spread_fee_bps: _,
+            liquidation_fee_bps: _,
+            interest_rate: _
+        } = old_config;
+        object::delete(id);
+    }
+
     public fun price<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         assert!(
@@ -150,6 +177,16 @@ module suilend::reserve {
         );
 
         reserve.price
+    }
+
+    #[test_only]
+    public fun update_price<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        price: u256, 
+    ) {
+        reserve.price = decimal::from_scaled_val(price);
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
     public fun market_value<P>(
@@ -192,15 +229,19 @@ module suilend::reserve {
     }
 
     public fun open_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(reserve.config.open_ltv_pct)
+        decimal::from_percent(option::borrow(&reserve.config).open_ltv_pct)
     }
 
     public fun close_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(reserve.config.close_ltv_pct)
+        decimal::from_percent(option::borrow(&reserve.config).close_ltv_pct)
     }
 
     public fun borrow_weight<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_bps(reserve.config.borrow_weight_bps)
+        decimal::from_bps(option::borrow(&reserve.config).borrow_weight_bps)
+    }
+
+    public fun liquidation_bonus<P>(reserve: &Reserve<P>): Decimal {
+        decimal::from_percent(option::borrow(&reserve.config).liquidation_bonus_pct)
     }
 
     // compound interest every second
@@ -210,6 +251,8 @@ module suilend::reserve {
         if (eq(time_elapsed, decimal::from(0))) {
             return
         };
+        debug::print(&8);
+        debug::print(&time_elapsed);
 
         // I(t + n) = I(t) * (1 + apr()/SECONDS_IN_YEAR) ^ n
         // since we don't have the pow() function, approximate with:
@@ -323,7 +366,7 @@ module suilend::reserve {
         compound_interest(reserve, clock);
 
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
-        reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
+        reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
 
         balance::join(&mut reserve_treasury.available_amount, liquidity);
     }

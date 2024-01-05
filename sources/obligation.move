@@ -7,13 +7,19 @@ module suilend::obligation {
     use suilend::reserve::{Self, Reserve, CToken};
     use std::debug;
     use sui::clock::{Self, Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, ge, gt, eq};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, ge, gt, eq, lt, min, max, ceil, floor};
     use std::option::{Self, Option};
 
     friend suilend::lending_market;
 
     /* errors */
     const EObligationIsUnhealthy: u64 = 0;
+    const EObligationIsHealthy: u64 = 1;
+    const EBorrowNotFound: u64 = 2;
+    const EDepositNotFound: u64 = 3;
+
+    /* constants */
+    const CLOSE_FACTOR_PCT: u8 = 20;
 
     struct Obligation<phantom P> has key, store {
         id: UID,
@@ -104,7 +110,7 @@ module suilend::obligation {
     }
 
     fun find_deposit_index<P>(
-        obligation: &mut Obligation<P>,
+        obligation: &Obligation<P>,
         reserve_id: u64,
     ): u64 {
         let i = 0;
@@ -121,7 +127,7 @@ module suilend::obligation {
     }
 
     fun find_borrow_index<P>(
-        obligation: &mut Obligation<P>,
+        obligation: &Obligation<P>,
         reserve_id: u64,
     ): u64 {
         let i = 0;
@@ -136,6 +142,46 @@ module suilend::obligation {
 
         i
     }
+
+    fun find_borrow_mut<P>(
+        obligation: &mut Obligation<P>,
+        reserve_id: u64,
+    ): &mut Borrow<P> {
+        let i = find_borrow_index(obligation, reserve_id);
+        assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
+
+        vector::borrow_mut(&mut obligation.borrows, i)
+    }
+
+    fun find_borrow<P>(
+        obligation: &Obligation<P>,
+        reserve_id: u64,
+    ): &Borrow<P> {
+        let i = find_borrow_index(obligation, reserve_id);
+        assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
+
+        vector::borrow(&obligation.borrows, i)
+    }
+
+    fun find_deposit_mut<P>(
+        obligation: &mut Obligation<P>,
+        reserve_id: u64,
+    ): &mut Deposit<P> {
+        let i = find_deposit_index(obligation, reserve_id);
+        assert!(i < vector::length(&obligation.deposits), EDepositNotFound);
+
+        vector::borrow_mut(&mut obligation.deposits, i)
+    }
+
+    fun find_deposit<P>(
+        obligation: &Obligation<P>,
+        reserve_id: u64,
+    ): &Deposit<P> {
+        let i = find_deposit_index(obligation, reserve_id);
+        assert!(i < vector::length(&obligation.deposits), EDepositNotFound);
+
+        vector::borrow(&obligation.deposits, i)
+    }   
 
     fun find_or_add_borrow<P>(
         obligation: &mut Obligation<P>,
@@ -178,7 +224,7 @@ module suilend::obligation {
         vector::borrow_mut(&mut obligation.deposits, length - 1)
     }
 
-    struct RefreshedTicket {}
+    struct RefreshedTicket has drop {}
 
     public(friend) fun refresh<P>(
         obligation: &mut Obligation<P>,
@@ -290,6 +336,20 @@ module suilend::obligation {
         let RefreshedTicket {} = ticket;
     }
 
+    public(friend) fun repay<P, T>(
+        obligation: &mut Obligation<P>,
+        reserve: &Reserve<P>,
+        reserve_id: u64,
+        amount: u64,
+    ) {
+        let borrow_index = find_borrow_index(obligation, reserve_id);
+        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
+
+        compound_interest(borrow, reserve);
+
+        borrow.borrowed_amount = sub(borrow.borrowed_amount, decimal::from(amount));
+    }
+
     public(friend) fun withdraw<P, T>(
         ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
@@ -310,6 +370,8 @@ module suilend::obligation {
 
         // update health values
         deposit.market_value = sub(deposit.market_value, withdraw_market_value);
+        deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount - ctoken_amount;
+
         obligation.deposited_value_usd = sub(obligation.deposited_value_usd, withdraw_market_value);
         obligation.allowed_borrow_value_usd = sub(
             obligation.allowed_borrow_value_usd,
@@ -331,6 +393,71 @@ module suilend::obligation {
 
         let deposit = bag::borrow_mut(&mut obligation.balances, Key<CToken<P, T>>{});
         balance::split(deposit, ctoken_amount)
+    }
+
+    public(friend) fun liquidate<P, Repay, Withdraw>(
+        _ticket: RefreshedTicket,
+        obligation: &mut Obligation<P>,
+        repay_reserve: &Reserve<P>,
+        repay_reserve_id: u64,
+        withdraw_reserve: &Reserve<P>,
+        withdraw_reserve_id: u64,
+        clock: &Clock,
+        repay_balance: &Balance<Repay>
+    ): (Balance<CToken<P, Withdraw>>, u64) {
+        assert!(is_unhealthy(obligation), EObligationIsHealthy);
+        let borrow = find_borrow(obligation, repay_reserve_id);
+        let deposit = find_deposit(obligation, withdraw_reserve_id);
+
+        let repay_amount = min(
+            mul(borrow.borrowed_amount, decimal::from_percent(CLOSE_FACTOR_PCT)),
+            decimal::from(balance::value(repay_balance))
+        );
+
+        let repay_value = reserve::market_value(repay_reserve, clock, repay_amount);
+        let withdraw_value = mul(
+            repay_value, 
+            add(decimal::from(1), reserve::liquidation_bonus(withdraw_reserve))
+        );
+
+        let final_repay_amount = 0;
+        let final_settle_amount = decimal::from(0);
+        let final_withdraw_amount = 0;
+
+        if (lt(deposit.market_value, withdraw_value)) {
+            let repay_pct = div(deposit.market_value, withdraw_value);
+
+            final_settle_amount = mul(repay_amount, repay_pct);
+            final_repay_amount = ceil(final_settle_amount);
+            final_withdraw_amount = deposit.deposited_ctoken_amount;
+        }
+        else {
+            let withdraw_pct = div(withdraw_value, deposit.market_value);
+
+            final_settle_amount = repay_amount;
+            final_repay_amount = ceil(final_settle_amount);
+            final_withdraw_amount = floor(mul(
+                decimal::from(deposit.deposited_ctoken_amount), 
+                withdraw_pct));
+        };
+
+        {
+            let borrow = find_borrow_mut(obligation, repay_reserve_id);
+            borrow.borrowed_amount = sub(borrow.borrowed_amount, final_settle_amount);
+        };
+
+        {
+            let deposit = find_deposit_mut(obligation, withdraw_reserve_id);
+            deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount - final_withdraw_amount;
+        };
+
+        let deposit = bag::borrow_mut(&mut obligation.balances, Key<CToken<P, Withdraw>>{});
+        let withdraw_balance = balance::split(deposit, final_withdraw_amount);
+
+        debug::print(&b"hi");
+        debug::print(&final_repay_amount);
+        debug::print(&withdraw_balance);
+        (withdraw_balance, final_repay_amount)
     }
 
     const HEALTH_STATUS_HEALTHY: u64 = 0;

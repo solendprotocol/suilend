@@ -63,7 +63,7 @@ module suilend::decimal {
         ((a.value / WAD) as u64)
     }
 
-    public fun ceil_to_u64(a: Decimal): u64 {
+    public fun ceil(a: Decimal): u64 {
         (((a.value + WAD - 1) / WAD) as u64)
     }
 
@@ -85,6 +85,22 @@ module suilend::decimal {
 
     public fun lt(a: Decimal, b: Decimal): bool {
         a.value < b.value
+    }
+
+    public fun min(a: Decimal, b: Decimal): Decimal {
+        if (a.value < b.value) {
+            a
+        } else {
+            b
+        }
+    }
+
+    public fun max(a: Decimal, b: Decimal): Decimal {
+        if (a.value > b.value) {
+            a
+        } else {
+            b
+        }
     }
 }
 
