@@ -95,9 +95,9 @@ module suilend::test_lm {
         let obligation_owner_cap = create_obligation<TEST_LM>(&mut scenario, user);
 
         test_scenario::return_to_address(owner, owner_cap);
-        test_scenario::return_to_address(user, obligation_owner_cap);
 
         clock::destroy_for_testing(clock);
+        lending_market::destroy_for_testing(obligation_owner_cap);
         test_scenario::end(scenario);
     }
 
@@ -155,10 +155,10 @@ module suilend::test_lm {
         );
 
         test_scenario::return_to_address(owner, owner_cap);
-        test_scenario::return_to_address(user, obligation_owner_cap);
 
         // coin::burn_for_testing(ctokens);
         clock::destroy_for_testing(clock);
+        lending_market::destroy_for_testing(obligation_owner_cap);
         test_scenario::end(scenario);
     }
 
@@ -275,10 +275,10 @@ module suilend::test_lm {
         };
 
         test_scenario::return_to_address(owner, owner_cap);
-        test_scenario::return_to_address(user, obligation_owner_cap);
 
         coin::burn_for_testing(coins);
         clock::destroy_for_testing(clock);
+        lending_market::destroy_for_testing(obligation_owner_cap);
         test_scenario::end(scenario);
     }
 
@@ -388,7 +388,7 @@ module suilend::test_lm {
 
         test_helpers::update_reserve_config<TEST_LM, TEST_USDC>(&mut scenario, owner, &owner_cap, config);
 
-        let withdrawn_coins = test_helpers::liquidate<TEST_LM, TEST_USDC, TEST_USDC>(
+        let (leftover_repay_coins, withdrawn_coins) = test_helpers::liquidate<TEST_LM, TEST_USDC, TEST_USDC>(
             &mut scenario,
             lending_market::obligation_id(&obligation_owner_cap),
             liquidator,
@@ -405,11 +405,12 @@ module suilend::test_lm {
         };
 
         test_scenario::return_to_address(owner, owner_cap);
-        test_scenario::return_to_address(user, obligation_owner_cap);
 
         coin::burn_for_testing(withdrawn_coins);
+        coin::burn_for_testing(leftover_repay_coins);
         coin::burn_for_testing(borrowed_usdc);
         clock::destroy_for_testing(clock);
+        lending_market::destroy_for_testing(obligation_owner_cap);
         test_scenario::end(scenario);
     }
 }

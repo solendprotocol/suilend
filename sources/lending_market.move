@@ -64,7 +64,7 @@ module suilend::lending_market {
         );
     }
 
-    public entry fun add_reserve<P, T>(
+    public fun add_reserve<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         // scaled by 10^18
@@ -88,7 +88,7 @@ module suilend::lending_market {
         bag::add(&mut lending_market.reserve_treasuries, Name<T> {}, reserve_treasury);
     }
 
-    public entry fun update_reserve_config<P, T>(
+    public fun update_reserve_config<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         config: ReserveConfig,
@@ -99,7 +99,7 @@ module suilend::lending_market {
     }
 
     #[test_only]
-    public entry fun update_price<P, T>(
+    public fun update_price<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         clock: &Clock,
@@ -110,25 +110,23 @@ module suilend::lending_market {
         reserve::update_price<P>(reserve, clock, price);
     }
 
-    public entry fun create_obligation<P>(
+    public fun create_obligation<P>(
         lending_market: &mut LendingMarket<P>, 
         ctx: &mut TxContext
-    ) {
+    ): ObligationOwnerCap<P> {
         let obligation = obligation::create_obligation<P>(tx_context::sender(ctx), ctx);
-        transfer::transfer(
-            ObligationOwnerCap<P> { id: object::new(ctx), obligation_id: object::id(&obligation) }, 
-            tx_context::sender(ctx)
-        );
-
+        let cap = ObligationOwnerCap<P> { id: object::new(ctx), obligation_id: object::id(&obligation) };
         object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
+
+        cap
     }
 
-    public entry fun deposit_liquidity_and_mint_ctokens<P, T>(
+    public fun deposit_liquidity_and_mint_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>, 
         clock: &Clock,
         deposit: Coin<T>,
         ctx: &mut TxContext
-    ) {
+    ): Coin<CToken<P, T>> {
         let reserve_treasury: &mut ReserveTreasury<P, T> = bag::borrow_mut(
             &mut lending_market.reserve_treasuries, 
             Name<T> {}
@@ -145,11 +143,10 @@ module suilend::lending_market {
             clock, 
         );
 
-        let ctokens = coin::from_balance(ctoken_balance, ctx);
-        transfer::public_transfer(ctokens, tx_context::sender(ctx));
+        coin::from_balance(ctoken_balance, ctx)
     }
 
-    public entry fun deposit_ctokens_into_obligation<P, T>(
+    public fun deposit_ctokens_into_obligation<P, T>(
         lending_market: &mut LendingMarket<P>, 
         obligation_owner_cap: &ObligationOwnerCap<P>,
         deposit: Coin<CToken<P, T>>,
@@ -197,13 +194,13 @@ module suilend::lending_market {
         (reserve, reserve_treasury)
     }
 
-    public entry fun borrow<P, T>(
+    public fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
         amount: u64,
         ctx: &mut TxContext
-    ) {
+    ): Coin<T> {
         let obligation = object_bag::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
@@ -237,19 +234,16 @@ module suilend::lending_market {
             amount
         );
 
-        transfer::public_transfer(
-            coin::from_balance(liquidity, ctx), 
-            tx_context::sender(ctx)
-        );
+        coin::from_balance(liquidity, ctx)
     }
 
-    public entry fun withdraw<P, T>(
+    public fun withdraw<P, T>(
         lending_market: &mut LendingMarket<P>,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
         amount: u64,
         ctx: &mut TxContext
-    ) {
+    ): Coin<T> {
         let obligation = object_bag::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
@@ -278,10 +272,7 @@ module suilend::lending_market {
 
         let tokens = reserve::redeem_ctokens<P, T>(reserve, reserve_treasury, ctokens, clock);
 
-        transfer::public_transfer(
-            coin::from_balance(tokens, ctx), 
-            tx_context::sender(ctx)
-        );
+        coin::from_balance(tokens, ctx)
     }
 
     fun get_reserve<P, T>(
@@ -316,13 +307,13 @@ module suilend::lending_market {
         (reserve, reserve_treasury)
     }
 
-    public entry fun liquidate<P, Repay, Withdraw>(
+    public fun liquidate<P, Repay, Withdraw>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
         clock: &Clock,
         repay_amount: Coin<Repay>,
         ctx: &mut TxContext
-    ) {
+    ): (Coin<Repay>, Coin<Withdraw>) {
         let obligation: Obligation<P> = object_bag::remove(
             &mut lending_market.obligations, 
             obligation_id
@@ -360,36 +351,26 @@ module suilend::lending_market {
                 clock, 
                 required_repay_balance
             );
-
-            transfer::public_transfer(
-                coin::from_balance(repay_balance, ctx), 
-                tx_context::sender(ctx)
-            );
         };
 
-        {
-            let (withdraw_reserve, withdraw_reserve_treasury) = get_reserve_mut<P, Withdraw>(lending_market);
-            let withdraw_balance = reserve::redeem_ctokens<P, Withdraw>(
-                withdraw_reserve, 
-                withdraw_reserve_treasury, 
-                withdraw_ctoken_balance, 
-                clock,
-            );
-            debug::print(&7);
-            let ratio = reserve::ctoken_ratio(withdraw_reserve);
-            debug::print(&ratio);
-            debug::print(&withdraw_balance);
-
-            transfer::public_transfer(
-                coin::from_balance(withdraw_balance, ctx), 
-                tx_context::sender(ctx)
-            );
-        };
+        let (withdraw_reserve, withdraw_reserve_treasury) = get_reserve_mut<P, Withdraw>(lending_market);
+        let withdraw_balance = reserve::redeem_ctokens<P, Withdraw>(
+            withdraw_reserve, 
+            withdraw_reserve_treasury, 
+            withdraw_ctoken_balance, 
+            clock,
+        );
+        debug::print(&7);
+        let ratio = reserve::ctoken_ratio(withdraw_reserve);
+        debug::print(&ratio);
+        debug::print(&withdraw_balance);
 
         object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
+
+        (coin::from_balance(repay_balance, ctx), coin::from_balance(withdraw_balance, ctx))
     }
 
-    public entry fun repay<P, T>(
+    public fun repay<P, T>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
         clock: &Clock,
@@ -411,7 +392,7 @@ module suilend::lending_market {
             reserve::reserve_id(reserve_treasury)
         );
 
-        obligation::repay<P, T>(
+        obligation::repay<P>(
             obligation, 
             reserve, 
             reserve::reserve_id(reserve_treasury), 
@@ -437,5 +418,11 @@ module suilend::lending_market {
         );
 
         debug::print(obligation);
+    }
+
+    #[test_only]
+    public fun destroy_for_testing<P>(obligation_owner_cap: ObligationOwnerCap<P>) {
+        let ObligationOwnerCap { id, obligation_id: _ } = obligation_owner_cap;
+        object::delete(id);
     }
 }

@@ -50,26 +50,19 @@ module suilend::test_helpers {
         interest_rate_aprs: vector<u64>,
     ): ReserveConfig {
         test_scenario::next_tx(scenario, owner);
-        {
-            reserve::create_reserve_config(
-                open_ltv_pct, 
-                close_ltv_pct, 
-                borrow_weight_bps, 
-                deposit_limit, 
-                borrow_limit, 
-                borrow_fee_bps, 
-                spread_fee_bps, 
-                liquidation_fee_bps, 
-                interest_rate_utils,
-                interest_rate_aprs,
-                test_scenario::ctx(scenario)
-            );
-        };
-        
-        test_scenario::next_tx(scenario, owner);
-        {
-            test_scenario::take_from_sender<ReserveConfig>(scenario)
-        }
+        reserve::create_reserve_config(
+            open_ltv_pct, 
+            close_ltv_pct, 
+            borrow_weight_bps, 
+            deposit_limit, 
+            borrow_limit, 
+            borrow_fee_bps, 
+            spread_fee_bps, 
+            liquidation_fee_bps, 
+            interest_rate_utils,
+            interest_rate_aprs,
+            test_scenario::ctx(scenario)
+        )
     }
 
     public fun create_clock(scenario: &mut Scenario, owner: address): Clock {
@@ -130,21 +123,15 @@ module suilend::test_helpers {
 
     public fun create_obligation<P>(scenario: &mut Scenario, user: address): ObligationOwnerCap<P> {
         test_scenario::next_tx(scenario, user);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            
-            lending_market::create_obligation<P>(
-                &mut lending_market, 
-                test_scenario::ctx(scenario)
-            );
-
-            test_scenario::return_shared(lending_market);
-        };
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
         
-        test_scenario::next_tx(scenario, user);
-        {
-            test_scenario::take_from_address<ObligationOwnerCap<P>>(scenario, user)
-        }
+        let cap = lending_market::create_obligation<P>(
+            &mut lending_market, 
+            test_scenario::ctx(scenario)
+        );
+
+        test_scenario::return_shared(lending_market);
+        cap 
     }
 
     public fun deposit_reserve_liquidity<P, T>(
@@ -154,22 +141,17 @@ module suilend::test_helpers {
         tokens: Coin<T>
     ): Coin<CToken<P, T>> {
         test_scenario::next_tx(scenario, user);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
-                &mut lending_market, 
-                clock,
-                tokens,
-                test_scenario::ctx(scenario)
-            );
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+        let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
+            &mut lending_market, 
+            clock,
+            tokens,
+            test_scenario::ctx(scenario)
+        );
+        test_scenario::return_shared(lending_market);
 
-            test_scenario::return_shared(lending_market);
-        };
-        
-        test_scenario::next_tx(scenario, user);
-        {
-            test_scenario::take_from_sender<Coin<CToken<P, T>>>(scenario)
-        }
+        ctokens
+
     }
 
     public fun deposit_ctokens_into_obligation<P, T>(
@@ -179,17 +161,15 @@ module suilend::test_helpers {
         tokens: Coin<CToken<P, T>>
     ) {
         test_scenario::next_tx(scenario, user);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            lending_market::deposit_ctokens_into_obligation<P, T>(
-                &mut lending_market, 
-                obligation_owner_cap,
-                tokens,
-                test_scenario::ctx(scenario)
-            );
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+        lending_market::deposit_ctokens_into_obligation<P, T>(
+            &mut lending_market, 
+            obligation_owner_cap,
+            tokens,
+            test_scenario::ctx(scenario)
+        );
 
-            test_scenario::return_shared(lending_market);
-        };
+        test_scenario::return_shared(lending_market);
     }
 
     public fun repay<P, T>(
@@ -222,23 +202,17 @@ module suilend::test_helpers {
         amount: u64
     ): Coin<T> {
         test_scenario::next_tx(scenario, user);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            lending_market::borrow<P, T>(
-                &mut lending_market, 
-                obligation_owner_cap,
-                clock,
-                amount,
-                test_scenario::ctx(scenario)
-            );
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+        let coins = lending_market::borrow<P, T>(
+            &mut lending_market, 
+            obligation_owner_cap,
+            clock,
+            amount,
+            test_scenario::ctx(scenario)
+        );
 
-            test_scenario::return_shared(lending_market);
-        };
-
-        test_scenario::next_tx(scenario, user);
-        {
-            test_scenario::take_from_sender<Coin<T>>(scenario)
-        }
+        test_scenario::return_shared(lending_market);
+        coins
     }
 
     public fun withdraw<P, T>(
@@ -249,23 +223,18 @@ module suilend::test_helpers {
         amount: u64
     ): Coin<T> {
         test_scenario::next_tx(scenario, user);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            lending_market::withdraw<P, T>(
-                &mut lending_market, 
-                obligation_owner_cap,
-                clock,
-                amount,
-                test_scenario::ctx(scenario)
-            );
 
-            test_scenario::return_shared(lending_market);
-        };
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+        let coins = lending_market::withdraw<P, T>(
+            &mut lending_market, 
+            obligation_owner_cap,
+            clock,
+            amount,
+            test_scenario::ctx(scenario)
+        );
 
-        test_scenario::next_tx(scenario, user);
-        {
-            test_scenario::take_from_sender<Coin<T>>(scenario)
-        }
+        test_scenario::return_shared(lending_market);
+        coins
     }
 
     public fun liquidate<P, Repay, Withdraw>(
@@ -274,25 +243,21 @@ module suilend::test_helpers {
         liquidator: address,
         clock: &Clock,
         repay: Coin<Repay>
-    ): Coin<Withdraw> {
+    ): (Coin<Repay>, Coin<Withdraw>) {
         test_scenario::next_tx(scenario, liquidator);
-        {
-            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            lending_market::liquidate<P, Repay, Withdraw>(
-                &mut lending_market,
-                obligation_id,
-                clock,
-                repay,
-                test_scenario::ctx(scenario)
-            );
 
-            test_scenario::return_shared(lending_market);
-        };
+        let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+        let (repay_coins, withdraw_coins) = lending_market::liquidate<P, Repay, Withdraw>(
+            &mut lending_market,
+            obligation_id,
+            clock,
+            repay,
+            test_scenario::ctx(scenario)
+        );
 
-        test_scenario::next_tx(scenario, liquidator);
-        {
-            test_scenario::take_from_sender<Coin<Withdraw>>(scenario)
-        }
+        test_scenario::return_shared(lending_market);
+
+        (repay_coins, withdraw_coins)
     }
 
 }

@@ -336,7 +336,7 @@ module suilend::obligation {
         let RefreshedTicket {} = ticket;
     }
 
-    public(friend) fun repay<P, T>(
+    public(friend) fun repay<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
         reserve_id: u64,
@@ -420,9 +420,9 @@ module suilend::obligation {
             add(decimal::from(1), reserve::liquidation_bonus(withdraw_reserve))
         );
 
-        let final_repay_amount = 0;
-        let final_settle_amount = decimal::from(0);
-        let final_withdraw_amount = 0;
+        let final_repay_amount;
+        let final_settle_amount;
+        let final_withdraw_amount;
 
         if (lt(deposit.market_value, withdraw_value)) {
             let repay_pct = div(deposit.market_value, withdraw_value);

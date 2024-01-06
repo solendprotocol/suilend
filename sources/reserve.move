@@ -28,7 +28,7 @@ module suilend::reserve {
         last_update_timestamp_ms: u64
     }
 
-    struct ReserveConfig has key, store {
+    struct ReserveConfig has store {
         id: UID,
 
         // risk params
@@ -47,7 +47,7 @@ module suilend::reserve {
         interest_rate: InterestRateModel
     }
 
-    public entry fun create_reserve_config(
+    public fun create_reserve_config(
         open_ltv_pct: u8, 
         close_ltv_pct: u8, 
         borrow_weight_bps: u64, 
@@ -59,8 +59,8 @@ module suilend::reserve {
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
         ctx: &mut TxContext, 
-    ) {
-        let config = ReserveConfig {
+    ): ReserveConfig {
+        ReserveConfig {
             id: object::new(ctx),
             open_ltv_pct,
             close_ltv_pct,
@@ -75,12 +75,7 @@ module suilend::reserve {
                 utils: interest_rate_utils,
                 aprs: interest_rate_aprs
             }
-        };
-
-        transfer::transfer(
-            config,
-            tx_context::sender(ctx)
-        );
+        }
     }
 
     struct InterestRateModel has store, drop {
