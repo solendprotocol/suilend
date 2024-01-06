@@ -34,7 +34,7 @@ module suilend::test_lm {
 
         let owner_cap = create_lending_market(&mut scenario, TEST_LM {}, owner);
 
-        test_scenario::return_to_sender(&scenario, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
         test_scenario::end(scenario);
     }
 
@@ -78,7 +78,7 @@ module suilend::test_lm {
         );
 
 
-        test_scenario::return_to_sender(&scenario, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -94,7 +94,7 @@ module suilend::test_lm {
         let owner_cap = create_lending_market(&mut scenario, TEST_LM {}, owner);
         let obligation_owner_cap = create_obligation<TEST_LM>(&mut scenario, user);
 
-        test_scenario::return_to_address(owner, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
 
         clock::destroy_for_testing(clock);
         lending_market::destroy_for_testing(obligation_owner_cap);
@@ -154,7 +154,7 @@ module suilend::test_lm {
             ctokens,
         );
 
-        test_scenario::return_to_address(owner, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
 
         // coin::burn_for_testing(ctokens);
         clock::destroy_for_testing(clock);
@@ -274,7 +274,7 @@ module suilend::test_lm {
             test_scenario::return_shared(lending_market);
         };
 
-        test_scenario::return_to_address(owner, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
 
         coin::burn_for_testing(coins);
         clock::destroy_for_testing(clock);
@@ -404,7 +404,7 @@ module suilend::test_lm {
             test_scenario::return_shared(lending_market);
         };
 
-        test_scenario::return_to_address(owner, owner_cap);
+        lending_market::destroy_lending_market_owner_cap_for_testing(owner_cap);
 
         coin::burn_for_testing(withdrawn_coins);
         coin::burn_for_testing(leftover_repay_coins);

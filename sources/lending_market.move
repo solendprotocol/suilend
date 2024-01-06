@@ -28,7 +28,7 @@ module suilend::lending_market {
         obligations: ObjectBag,
     }
 
-    struct LendingMarketOwnerCap<phantom P> has key {
+    struct LendingMarketOwnerCap<phantom P> has key, store {
         id: UID
     }
 
@@ -44,10 +44,10 @@ module suilend::lending_market {
     // used to store ReserveTreasury objects in the Bag
     struct Name<phantom P> has copy, drop, store {}
 
-    public entry fun create_lending_market<P: drop>(
+    public fun create_lending_market<P: drop>(
         witness: P, 
         ctx: &mut TxContext
-    ) {
+    ): LendingMarketOwnerCap<P> {
         assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
 
         let lending_market = LendingMarket<P> {
@@ -58,10 +58,8 @@ module suilend::lending_market {
         };
         
         transfer::share_object(lending_market);
-        transfer::transfer(
-            LendingMarketOwnerCap<P> { id: object::new(ctx) }, 
-            tx_context::sender(ctx)
-        );
+
+        LendingMarketOwnerCap<P> { id: object::new(ctx) }
     }
 
     public fun add_reserve<P, T>(
@@ -423,6 +421,12 @@ module suilend::lending_market {
     #[test_only]
     public fun destroy_for_testing<P>(obligation_owner_cap: ObligationOwnerCap<P>) {
         let ObligationOwnerCap { id, obligation_id: _ } = obligation_owner_cap;
+        object::delete(id);
+    }
+
+    #[test_only]
+    public fun destroy_lending_market_owner_cap_for_testing<P>(lending_market_owner_cap: LendingMarketOwnerCap<P>) {
+        let LendingMarketOwnerCap { id } = lending_market_owner_cap;
         object::delete(id);
     }
 }

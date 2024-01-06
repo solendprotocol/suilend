@@ -22,17 +22,11 @@ module suilend::test_helpers {
 
     public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address): LendingMarketOwnerCap<P> {
         test_scenario::next_tx(scenario, owner);
-        {
-            lending_market::create_lending_market<P>(
-                witness,
-                test_scenario::ctx(scenario)
-            );
-        };
 
-        test_scenario::next_tx(scenario, owner);
-        {
-            test_scenario::take_from_sender<LendingMarketOwnerCap<P>>(scenario)
-        }
+        lending_market::create_lending_market<P>(
+            witness,
+            test_scenario::ctx(scenario)
+        )
     }
 
     public fun create_reserve_config(
