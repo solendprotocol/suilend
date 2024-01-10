@@ -113,7 +113,10 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): ObligationOwnerCap<P> {
         let obligation = obligation::create_obligation<P>(tx_context::sender(ctx), ctx);
-        let cap = ObligationOwnerCap<P> { id: object::new(ctx), obligation_id: object::id(&obligation) };
+        let cap = ObligationOwnerCap<P> { 
+            id: object::new(ctx), 
+            obligation_id: object::id(&obligation) 
+        };
         object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
 
         cap
