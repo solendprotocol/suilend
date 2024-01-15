@@ -10,7 +10,7 @@ import {
   TransactionBlock,
   fromB64,
 } from "@mysten/sui.js";
-import { load, ObligationOwnerCap, ObligationType, Reserve, LendingMarket } from "./types";
+import { load, ObligationOwnerCap, ObligationType, ReserveType, LendingMarketType, Reserve, LendingMarket } from "./types";
 import { BcsType } from "@mysten/bcs";
 
 const WORMHOLE_STATE_ID =
@@ -35,15 +35,19 @@ interface ReserveConfigArgs {
 }
 
 export class SuilendClient {
-  lendingMarketId: string;
+  lendingMarket: LendingMarketType;
   lendingMarketType: string | null;
 
   client: JsonRpcProvider;
   pythClient: SuiPythClient;
   pythConnection: SuiPriceServiceConnection;
 
-  constructor(lendingMarketId: string, client: JsonRpcProvider) {
-    this.lendingMarketId = lendingMarketId;
+  private constructor(
+    lendingMarket: LendingMarketType, 
+    lendingMarketId: string, 
+    client: JsonRpcProvider
+  ) {
+    this.lendingMarket = lendingMarket;
     this.lendingMarketType = null;
     this.client = client;
     this.pythClient = new SuiPythClient(
@@ -56,21 +60,25 @@ export class SuilendClient {
     );
   }
 
-  async initialize() {
-    let lendingMarket = await this.client.getObject({
-      id: this.lendingMarketId,
+  static async initialize(lendingMarketId: string, client: JsonRpcProvider) {
+    let lendingMarket = await client.getObject({
+      id: lendingMarketId,
       options: { showContent: true },
     });
+    let lendingMarketType;
     if (lendingMarket.data?.content?.dataType === "moveObject") {
       const outerType = lendingMarket.data?.content?.type;
-      this.lendingMarketType = outerType.substring(
+      lendingMarketType = outerType.substring(
         outerType.indexOf("<") + 1,
         outerType.indexOf(">")
       );
-      console.log(`Lending market type: ${this.lendingMarketType}`);
+      console.log(`Lending market type: ${lendingMarketType}`);
     } else {
       throw new Error("Error: lending market type not found");
     }
+
+    let lendingMarketObj = await load(client, LendingMarket, lendingMarketId);
+    return new SuilendClient(lendingMarketObj, lendingMarketId, client);
   }
 
   async createReserve(
@@ -223,7 +231,7 @@ export class SuilendClient {
     }
 
     let priceIds = new Set<string>();
-    obligation.deposits
+    for obligation.deposits
 
     // gotta refresh everything first
 

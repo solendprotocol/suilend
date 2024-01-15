@@ -55,7 +55,9 @@ export const Obligation = bcs.struct("Obligation", {
   weighted_borrowed_value_usd: Decimal,
 });
 
-export type ObligationType = InferBcsType<typeof Obligation>;
+export type ObligationType = typeof Obligation.$inferType;
+export type ReserveType = typeof Reserve.$inferType;
+export type LendingMarketType = typeof LendingMarket.$inferType;
 
 function Option<T>(T: BcsType<T>) {
   return bcs.struct(`Option<${T}>`, {
@@ -112,7 +114,7 @@ function Option<T>(T: BcsType<T>) {
   obligations: ObjectBag,
 });
 
-export async function load<T>(client: JsonRpcProvider, type: BcsType<T>, id: string): Promise<T> {
+export async function load<T>(client: JsonRpcProvider, type: BcsType<T>, id: string): Promise<InferBcsType<BcsType<T>>> {
   let data = await client.getObject({ id, options: { showBcs: true } });
   if (data.data?.bcs?.dataType !== "moveObject") {
     throw new Error("Error: invalid data type");
