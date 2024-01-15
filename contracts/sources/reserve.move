@@ -10,6 +10,11 @@ module suilend::reserve {
     use sui::math::{Self, pow};
     use std::option::{Self, Option};
     use std::debug;
+    use pyth::price_info::{Self, PriceInfoObject};
+    use pyth::price_feed::{Self, PriceFeed};
+    use pyth::price_identifier::{Self, PriceIdentifier};
+    use pyth::price::{Self};
+    use pyth::i64::{Self, I64};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -87,6 +92,9 @@ module suilend::reserve {
         config: Option<ReserveConfig>,
         mint_decimals: u8,
 
+        // oracles
+        price_identifier: PriceIdentifier,
+
         price: Decimal,
         price_last_update_timestamp_s: u64,
 
@@ -112,17 +120,45 @@ module suilend::reserve {
         reserve_treasury.reserve_id
     }
 
+    fun get_pyth_price_and_identifier(price_info_obj: &PriceInfoObject): (Decimal, PriceIdentifier) {
+        let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
+        let price_feed = price_info::get_price_feed(&price_info);
+        let price_identifier = price_feed::get_price_identifier(price_feed);
+        let price = price_feed::get_price(price_feed);
+        let mag = i64::get_magnitude_if_positive(&price::get_price(&price));
+        let expo = price::get_expo(&price);
+
+        let price_decimal = if (i64::get_is_negative(&expo)) {
+            div(
+                decimal::from(mag),
+                decimal::from(math::pow(10, (i64::get_magnitude_if_negative(&expo) as u8)))
+            )
+        }
+        else {
+            mul(
+                decimal::from(mag),
+                decimal::from(math::pow(10, (i64::get_magnitude_if_positive(&expo) as u8)))
+            )
+        };
+
+        (price_decimal, price_identifier)
+    }
+
     public(friend) fun create_reserve<P, T>(
         config: ReserveConfig, 
         coin_metadata: &CoinMetadata<T>,
-        price: u256, 
+        price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
         reserve_id: u64,
     ): (Reserve<P>, ReserveTreasury<P, T>) {
+
+        let (price_decimal, price_identifier) = get_pyth_price_and_identifier(price_info_obj);
+
         let reserve = Reserve {
             config: option::some(config),
             mint_decimals: coin::get_decimals(coin_metadata),
-            price: decimal::from_scaled_val(price),
+            price_identifier,
+            price: price_decimal,
             price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             available_amount: 0,
             ctoken_supply: 0,
@@ -174,8 +210,20 @@ module suilend::reserve {
         reserve.price
     }
 
-    #[test_only]
     public fun update_price<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        price_info_obj: &PriceInfoObject
+    ) {
+        let (price_decimal, price_identifier) = get_pyth_price_and_identifier(price_info_obj);
+        assert!(price_identifier == reserve.price_identifier, EPriceStale);
+
+        reserve.price = price_decimal;
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
+    }
+
+    #[test_only]
+    public fun update_price_for_testing<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
         price: u256, 

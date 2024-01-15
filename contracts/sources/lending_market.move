@@ -10,10 +10,13 @@ module suilend::lending_market {
     use std::vector::{Self};
     use std::debug::{Self};
     use std::string::{Self};
+    use std::option::{Option, Self};
     use suilend::decimal::{Self, Decimal};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self, Balance};
+    use pyth::price_info::{Self, PriceInfoObject};
+    use pyth::price_feed::{Self, PriceFeed};
 
     /* errors */
     const ENotAOneTimeWitness: u64 = 0;
@@ -65,8 +68,7 @@ module suilend::lending_market {
     public fun add_reserve<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
-        // scaled by 10^18
-        price: u256,
+        priceInfo: &PriceInfoObject,
         config: ReserveConfig,
         coin_metadata: &CoinMetadata<T>,
         clock: &Clock,
@@ -77,7 +79,7 @@ module suilend::lending_market {
         let (reserve, reserve_treasury) = reserve::create_reserve<P, T>(
             config, 
             coin_metadata, 
-            price, 
+            priceInfo, 
             clock, 
             reserve_id
         );
@@ -96,8 +98,18 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
+    public fun refresh_reserve_price<P, T>(
+        lending_market: &mut LendingMarket<P>, 
+        clock: &Clock,
+        price_info: &PriceInfoObject,
+        _ctx: &mut TxContext
+    ) {
+        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
+        reserve::update_price<P>(reserve, clock, price_info);
+    }
+
     #[test_only]
-    public fun update_price<P, T>(
+    public fun update_price_for_testing<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         clock: &Clock,
@@ -105,7 +117,7 @@ module suilend::lending_market {
         _ctx: &mut TxContext
     ) {
         let (reserve, _) = get_reserve_mut<P, T>(lending_market);
-        reserve::update_price<P>(reserve, clock, price);
+        reserve::update_price_for_testing<P>(reserve, clock, price);
     }
 
     public fun create_obligation<P>(

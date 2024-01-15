@@ -2,9 +2,22 @@
 name = "suilend"
 version = "0.0.1"
 
-[dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+[dependencies.Sui]
+git = "https://github.com/MystenLabs/sui.git"
+subdir = "crates/sui-framework/packages/sui-framework"
+rev = "09b2081498366df936abae26eea4b2d5cafb2788"
+ 
+[dependencies.Pyth]
+git = "https://github.com/0xripleys/pyth-crosschain.git"
+subdir = "target_chains/sui/contracts"
+rev = "09d7a05254ce5a205533c20774325df5e8d4242b"
+
+# [dependencies.Pyth]
+# git = "https://github.com/0xripleys/pyth-crosschain.git"
+# subdir = "target_chains/sui/contracts"
+# rev = "420bd4e0a6071b2ad137a992a665963b0a8dfc3a"
 
 [addresses]
 sui = "0x2"
 suilend = "0x0"
+pyth = "0x8d97f1cd6ac663735be08d1d2b6d02a159e711586461306ce60a2b7a6a565a9e"
