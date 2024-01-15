@@ -9,6 +9,7 @@
     "clean": "rm -rf dist && rm -rf node_modules/"
   },
   "dependencies": {
+    "@mysten/bcs": "^0.10.1",
     "@mysten/sui.js": "^0.37.1",
     "@pythnetwork/pyth-sui-js": "^1.2.4",
     "@types/node": "^20.10.6",
