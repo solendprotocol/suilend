@@ -5,19 +5,14 @@ import {
   Connection,
   Ed25519Keypair,
   JsonRpcProvider,
+  MIST_PER_SUI,
   RawSigner,
   SUI_CLOCK_OBJECT_ID,
   TransactionBlock,
   fromB64,
 } from "@mysten/sui.js";
-import {
-  load,
-  ObligationOwnerCap,
-  Obligation,
-  Reserve,
-  LendingMarket,
-} from "./types";
 import { SuilendClient } from "./client";
+import { Obligation } from "./sdk/suilend/obligation/structs";
 
 // replace <YOUR_SUI_ADDRESS> with your actual address, which is in the form 0x123...
 const MY_ADDRESS =
@@ -26,15 +21,13 @@ const MY_ADDRESS =
 async function main() {
   // create a new SuiClient object pointing to the network you want to use
   const lendingMarketId =
-    "0xa6d1603c50fd4fac1ae544744930b37f3c3467c6b10e60bc0db5673d764a1647";
+    "0x3757cd8f3eee3fc6aebb24dd23a56b3bc3643a5aaefda6b7033f63773995a836";
   // const sui_metadata = await client.getCoinMetadata({ coinType: '0x2::sui::SUI' })!;
   const client = new JsonRpcProvider(
     new Connection({ fullnode: "https://fullnode.mainnet.sui.io:443" })
   );
   let suilendClient = await SuilendClient.initialize(lendingMarketId, client);
 
-  const obligationOwnerCapId =
-    "0xc0201eb13d4507cfb078d2f5bde94b9f02b1720a3883a8b8a7f0544029d8985d";
   // Obligation.fetch()
 
   const keypair = Ed25519Keypair.fromSecretKey(
@@ -42,7 +35,7 @@ async function main() {
   );
   const signer = new RawSigner(keypair, client);
 
-  suilendClient.setObligationOwnerCap(obligationOwnerCapId);
+  await suilendClient.setObligationOwnerCap("0x99d458e0a85d348f762dbeae771652371571252a6a25b2345a9e16fb2769e4af");
 
   // console.log(JSON.stringify(
   //   suilendClient.lendingMarket,
@@ -50,16 +43,54 @@ async function main() {
   //   2
   // ));
   // console.log(suilendClient.lendingMarket);
+
   let txb = new TransactionBlock();
-  suilendClient.deposit(
-    "0x540df15682e23f45a40298962909e5b7d3f99dea785d9a0a73fffbf07bf85e9a",
-    "0x2::sui::SUI",
-    obligationOwnerCapId,
-    txb
+
+  let obligationData = await client.getObject({
+    id: "0xf6add6b93510077ace37a90328a39274e7b7a7a3b539e12547d2f1bde4557b51",
+    options: { showBcs: true },
+  });
+
+  if (obligationData.data?.bcs?.dataType !== "moveObject") {
+    throw new Error("Error: invalid data type");
+  }
+
+  let obligation = Obligation.fromBcs(
+    suilendClient.lendingMarket.$typeArg,
+    fromB64(obligationData.data.bcs.bcsBytes)
   );
+
+  let [repay_coins, withdraw_coins] = await suilendClient.liquidate(
+    txb,
+    obligation,
+    "0x2::sui::SUI",
+    "0x2::sui::SUI",
+    "0x1bfb480c2a25b6bcc2edd7d9739b842a8d66d361fb01f7f6c1f20df81f0bbbc0"
+  );
+
+  txb.transferObjects([repay_coins, withdraw_coins], txb.object(MY_ADDRESS));
+
+  // await suilendClient.updateReserveConfig(
+  //   MY_ADDRESS,
+  //   {
+  //     open_ltv_pct: 0,
+  //     close_ltv_pct: 0,
+  //     borrow_weight_bps: 10_000,
+  //     deposit_limit: 1000000000,
+  //     borrow_limit: 1000000000,
+  //     borrow_fee_bps: 0,
+  //     spread_fee_bps: 0,
+  //     liquidation_fee_bps: 0,
+  //     interest_rate_utils: [0],
+  //     interest_rate_aprs: [0]
+  //   },
+  //   "0x2::sui::SUI",
+  //   txb
+  // );
 
   // await suilendClient.createReserve(
   //   txb,
+  //   MY_ADDRESS,
   //   {
   //     open_ltv_pct: 100,
   //     close_ltv_pct: 150,
@@ -80,9 +111,29 @@ async function main() {
   // txb.transferObjects([obligationOwnerCap], txb.pure(MY_ADDRESS));
 
   // suilendClient.deposit(
-  //   "0x2e7aebd6459194bd4ab72b0d82981a6371369166f4256ab4c11cfd08e8ab52e2",
+  //   "0x71407245f9d8dd1373320456f0f079cd53342e342d1121cd442e8da004793871",
   //   "0x2::sui::SUI",
-  //   obligationOwnerCap,
+  //   txb
+  // );
+
+  // let [coins] = await suilendClient.withdraw(
+  //   "0x2::sui::SUI",
+  //   1,
+  //   txb
+  // );
+
+  // txb.setGasBudget(1000000000);
+  // let [coins] = await suilendClient.borrow(
+  //   "0x2::sui::SUI",
+  //   1_000_000_000 / 200,
+  //   txb
+  // );
+  // txb.transferObjects([coins], txb.object(MY_ADDRESS));
+
+  // suilendClient.repay(
+  //   "0xf6add6b93510077ace37a90328a39274e7b7a7a3b539e12547d2f1bde4557b51",
+  //   "0x2::sui::SUI",
+  //   "0x5f7d683e5e0c46b48b13d0b9341b970943ace766c5d219ddea0b0be39da5de59",
   //   txb
   // );
 

@@ -26,6 +26,7 @@ module suilend::reserve {
 
     /* errors */
     const EPriceStale: u64 = 0;
+    const EPriceIdentifierMismatch: u64 = 1;
 
     // temporary price struct until we integrate with pyth
     struct Price has store {
@@ -128,6 +129,8 @@ module suilend::reserve {
         let mag = i64::get_magnitude_if_positive(&price::get_price(&price));
         let expo = price::get_expo(&price);
 
+        // TODO: add staleness checks, confidence interval checks, etc
+
         let price_decimal = if (i64::get_is_negative(&expo)) {
             div(
                 decimal::from(mag),
@@ -216,7 +219,7 @@ module suilend::reserve {
         price_info_obj: &PriceInfoObject
     ) {
         let (price_decimal, price_identifier) = get_pyth_price_and_identifier(price_info_obj);
-        assert!(price_identifier == reserve.price_identifier, EPriceStale);
+        assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
 
         reserve.price = price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;

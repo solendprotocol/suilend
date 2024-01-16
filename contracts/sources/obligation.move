@@ -54,9 +54,10 @@ module suilend::obligation {
 
     fun compound_interest<P>(borrow: &mut Borrow<P>, reserve: &Reserve<P>) {
         let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
+
         let compounded_interest_rate = div(
-            reserve::cumulative_borrow_rate(reserve),
-            new_cumulative_borrow_rate
+            new_cumulative_borrow_rate,
+            borrow.cumulative_borrow_rate
         );
 
         assert!(ge(compounded_interest_rate, decimal::from(1)), 0);
