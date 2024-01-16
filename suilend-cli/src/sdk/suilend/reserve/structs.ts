@@ -193,11 +193,12 @@ export class Reserve {
 
   static fromFields(typeArg: Type, fields: Record<string, any>): Reserve {
     return new Reserve(typeArg, {
-      config:
-        Option.fromFields<ReserveConfig>(
-          `0x0::reserve::ReserveConfig`,
-          fields.config
-        ).vec[0] || null,
+      config: null,
+      // config:
+      //   Option.fromFields<ReserveConfig>(
+      //     `0x0::reserve::ReserveConfig`,
+      //     fields.config
+      //   ).vec[0] || null,
       mintDecimals: fields.mint_decimals,
       priceIdentifier: PriceIdentifier.fromFields(fields.price_identifier),
       price: Decimal.fromFields(fields.price),

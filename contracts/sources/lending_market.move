@@ -98,13 +98,17 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    public fun refresh_reserve_price<P, T>(
+    public fun refresh_reserve_price<P>(
         lending_market: &mut LendingMarket<P>, 
+        reserve_id: u64,
         clock: &Clock,
         price_info: &PriceInfoObject,
         _ctx: &mut TxContext
     ) {
-        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
+        let reserve = vector::borrow_mut(
+            &mut lending_market.reserves, 
+            reserve_id
+        );
         reserve::update_price<P>(reserve, clock, price_info);
     }
 

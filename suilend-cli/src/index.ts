@@ -10,14 +10,18 @@ import {
   TransactionBlock,
   fromB64,
 } from "@mysten/sui.js";
-import { load, ObligationOwnerCap, Obligation, Reserve, LendingMarket } from "./types";
+import {
+  load,
+  ObligationOwnerCap,
+  Obligation,
+  Reserve,
+  LendingMarket,
+} from "./types";
 import { SuilendClient } from "./client";
 
 // replace <YOUR_SUI_ADDRESS> with your actual address, which is in the form 0x123...
 const MY_ADDRESS =
   "0x4f3446baf9ca583b920e81924b94883b64addc2a2671963b546aaef77f79a28b";
-const SUILEND_CONTRACT_ADDRESS =
-  "0xd4b22ab40c4e3ef2f90cef9432bde18bea223d06644a111921383821344cb340";
 
 async function main() {
   // create a new SuiClient object pointing to the network you want to use
@@ -27,8 +31,7 @@ async function main() {
   const client = new JsonRpcProvider(
     new Connection({ fullnode: "https://fullnode.mainnet.sui.io:443" })
   );
-  const suilendClient = new SuilendClient(lendingMarketId, client);
-  await suilendClient.initialize();
+  let suilendClient = await SuilendClient.initialize(lendingMarketId, client);
 
   const obligationOwnerCapId =
     "0xc0201eb13d4507cfb078d2f5bde94b9f02b1720a3883a8b8a7f0544029d8985d";
@@ -39,18 +42,21 @@ async function main() {
   );
   const signer = new RawSigner(keypair, client);
 
+  suilendClient.setObligationOwnerCap(obligationOwnerCapId);
+
+  // console.log(JSON.stringify(
+  //   suilendClient.lendingMarket,
+  //   (key, value) => (typeof value === "bigint" ? value.toString() : value), // return everything else unchanged
+  //   2
+  // ));
+  // console.log(suilendClient.lendingMarket);
   let txb = new TransactionBlock();
-  suilendClient.withdraw(obligationOwnerCapId, "0x2::sui::SUI", 1000000000, txb);
-
-  let obligationOwnerCap = await load(client, ObligationOwnerCap, obligationOwnerCapId);
-  console.log(obligationOwnerCap);
-
-  let obligation = await load(client, Obligation, obligationOwnerCap.obligation_id.bytes);
-  console.log(obligation);
-
-  let lendingMarket = await load(client, LendingMarket, lendingMarketId);
-  console.log(JSON.stringify(lendingMarket, null, 2));
-
+  suilendClient.deposit(
+    "0x540df15682e23f45a40298962909e5b7d3f99dea785d9a0a73fffbf07bf85e9a",
+    "0x2::sui::SUI",
+    obligationOwnerCapId,
+    txb
+  );
 
   // await suilendClient.createReserve(
   //   txb,

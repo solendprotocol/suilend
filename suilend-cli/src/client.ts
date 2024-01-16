@@ -10,8 +10,12 @@ import {
   TransactionBlock,
   fromB64,
 } from "@mysten/sui.js";
-import { load, ObligationOwnerCap, ObligationType, ReserveType, LendingMarketType, Reserve, LendingMarket } from "./types";
-import { BcsType } from "@mysten/bcs";
+import { BcsType, toHEX } from "@mysten/bcs";
+import {
+  LendingMarket,
+  ObligationOwnerCap,
+} from "./sdk/suilend/lending-market/structs";
+import { Obligation } from "./sdk/suilend/obligation/structs";
 
 const WORMHOLE_STATE_ID =
   "0xaeab97f96cf9877fee2883315d459552b2b921edc16d7ceac6eab944dd88919c";
@@ -35,20 +39,21 @@ interface ReserveConfigArgs {
 }
 
 export class SuilendClient {
-  lendingMarket: LendingMarketType;
-  lendingMarketType: string | null;
+  lendingMarket: LendingMarket;
 
   client: JsonRpcProvider;
   pythClient: SuiPythClient;
   pythConnection: SuiPriceServiceConnection;
 
+  obligation: Obligation | null;
+  obligationOwnerCap: ObligationOwnerCap | null;
+
   private constructor(
-    lendingMarket: LendingMarketType, 
-    lendingMarketId: string, 
+    lendingMarket: LendingMarket,
+    lendingMarketId: string,
     client: JsonRpcProvider
   ) {
     this.lendingMarket = lendingMarket;
-    this.lendingMarketType = null;
     this.client = client;
     this.pythClient = new SuiPythClient(
       client,
@@ -58,27 +63,38 @@ export class SuilendClient {
     this.pythConnection = new SuiPriceServiceConnection(
       "https://hermes.pyth.network"
     );
+
+    this.obligation = null;
+    this.obligationOwnerCap = null;
   }
 
   static async initialize(lendingMarketId: string, client: JsonRpcProvider) {
-    let lendingMarket = await client.getObject({
+    let lendingMarketData = await client.getObject({
       id: lendingMarketId,
-      options: { showContent: true },
+      options: { showBcs: true },
     });
-    let lendingMarketType;
-    if (lendingMarket.data?.content?.dataType === "moveObject") {
-      const outerType = lendingMarket.data?.content?.type;
-      lendingMarketType = outerType.substring(
-        outerType.indexOf("<") + 1,
-        outerType.indexOf(">")
-      );
-      console.log(`Lending market type: ${lendingMarketType}`);
-    } else {
+    console.log(lendingMarketData);
+
+    if (lendingMarketData.data?.bcs?.dataType !== "moveObject") {
+      throw new Error("Error: invalid data type");
+    }
+    if (lendingMarketData.data?.bcs?.type == null) {
       throw new Error("Error: lending market type not found");
     }
 
-    let lendingMarketObj = await load(client, LendingMarket, lendingMarketId);
-    return new SuilendClient(lendingMarketObj, lendingMarketId, client);
+    const outerType = lendingMarketData.data?.bcs?.type;
+    let lendingMarketType = outerType.substring(
+      outerType.indexOf("<") + 1,
+      outerType.indexOf(">")
+    );
+    console.log(`Lending market type: ${lendingMarketType}`);
+
+    let lendingMarket = LendingMarket.fromBcs(
+      lendingMarketType,
+      fromB64(lendingMarketData.data.bcs.bcsBytes)
+    );
+
+    return new SuilendClient(lendingMarket, lendingMarketId, client);
   }
 
   async createReserve(
@@ -88,10 +104,6 @@ export class SuilendClient {
     coinType: string,
     pythPriceId: string
   ) {
-    if (this.lendingMarketType == null) {
-      throw new Error("Error: client not initialized");
-    }
-
     const priceUpdateData = await this.pythConnection.getPriceFeedsUpdateData([
       pythPriceId,
     ]);
@@ -140,7 +152,7 @@ export class SuilendClient {
     let objs = await this.client.getOwnedObjects({
       owner: ownerId,
       filter: {
-        StructType: `${SUILEND_CONTRACT_ADDRESS}::lending_market::LendingMarketOwnerCap<${this.lendingMarketType}>`,
+        StructType: `${SUILEND_CONTRACT_ADDRESS}::lending_market::LendingMarketOwnerCap<${this.lendingMarket.$typeArg}>`,
       },
     });
     console.log(objs);
@@ -157,7 +169,7 @@ export class SuilendClient {
         // owner cap
         txb.object(ownerCapId),
         // lending market
-        txb.object(this.lendingMarketId),
+        txb.object(this.lendingMarket.id),
         // price
         txb.object(priceInfoObjectIds[0]),
         // config
@@ -167,19 +179,15 @@ export class SuilendClient {
         // clock
         txb.object("0x6"),
       ],
-      typeArguments: [this.lendingMarketType, coinType],
+      typeArguments: [this.lendingMarket.$typeArg, coinType],
     });
   }
 
   createObligation(txb: TransactionBlock) {
-    if (this.lendingMarketType == null) {
-      throw new Error("Error: client not initialized");
-    }
-
     return txb.moveCall({
       target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::create_obligation`,
-      arguments: [txb.object(this.lendingMarketId)],
-      typeArguments: [this.lendingMarketType],
+      arguments: [txb.object(this.lendingMarket.id)],
+      typeArguments: [this.lendingMarket.$typeArg],
     });
   }
 
@@ -189,49 +197,94 @@ export class SuilendClient {
     obligationOwnerCapId: string,
     txb: TransactionBlock
   ) {
-    if (this.lendingMarketType == null) {
-      throw new Error("Error: client not initialized");
-    }
-
+    console.log(this.lendingMarket.$typeArg);
     const [ctokens] = txb.moveCall({
       target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::deposit_liquidity_and_mint_ctokens`,
       arguments: [
         // lending market
-        txb.object(this.lendingMarketId),
+        txb.object(this.lendingMarket.id),
         // clock
         txb.object("0x6"),
         txb.object(coinsId),
       ],
-      typeArguments: [this.lendingMarketType, coinType],
+      typeArguments: [this.lendingMarket.$typeArg, coinType],
     });
 
     return txb.moveCall({
       target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::deposit_ctokens_into_obligation`,
       arguments: [
         // lending market
-        txb.object(this.lendingMarketId),
+        txb.object(this.lendingMarket.id),
         // obligation owner cap
         txb.object(obligationOwnerCapId),
         // ctokens
         ctokens,
       ],
-      typeArguments: [this.lendingMarketType, coinType],
+      typeArguments: [this.lendingMarket.$typeArg, coinType],
     });
   }
 
-  withdraw(
-    obligationOwnerCapId: string,
-    obligation: ObligationType,
+  async setObligationOwnerCap(obligationOwnerCapId: string) {
+    let obligationOwnerCapData = await this.client.getObject({
+      id: obligationOwnerCapId,
+      options: { showBcs: true },
+    });
+
+    if (obligationOwnerCapData.data?.bcs?.dataType !== "moveObject") {
+      throw new Error("Error: invalid data type");
+    }
+
+    this.obligationOwnerCap = ObligationOwnerCap.fromBcs(
+      this.lendingMarket.$typeArg,
+      fromB64(obligationOwnerCapData.data.bcs.bcsBytes)
+    );
+
+    let obligationData = await this.client.getObject({
+      id: this.obligationOwnerCap.obligationId,
+      options: { showBcs: true },
+    });
+
+    if (obligationData.data?.bcs?.dataType !== "moveObject") {
+      throw new Error("Error: invalid data type");
+    }
+
+    this.obligation = Obligation.fromBcs(
+      this.lendingMarket.$typeArg,
+      fromB64(obligationData.data.bcs.bcsBytes)
+    );
+
+    console.log(this.obligationOwnerCap);
+    console.log(this.obligation);
+  }
+
+  async withdraw(
     coinType: string,
     amount: number,
     txb: TransactionBlock
   ) {
-    if (this.lendingMarketType == null) {
+    if (this.obligationOwnerCap == null || this.obligation == null) {
       throw new Error("Error: client not initialized");
     }
 
-    let priceIds = new Set<string>();
-    for obligation.deposits
+    let priceIdToTokenType = new Set<string>();
+    this.obligation.deposits.forEach((deposit) => {
+      let reserve = this.lendingMarket.reserves[deposit.reserveId as unknown as number];
+      priceIds.add(toHEX(new Uint8Array(reserve.priceIdentifier.bytes)))
+    });
+    this.obligation.borrows.forEach((borrow) => {
+      let reserve = this.lendingMarket.reserves[borrow.reserveId as unknown as number];
+      priceIds.add(toHEX(new Uint8Array(reserve.priceIdentifier.bytes)))
+    });
+
+    let priceIdArray = Array.from(priceIds.values());
+    const priceUpdateData = await this.pythConnection.getPriceFeedsUpdateData(priceIdArray);
+    const priceInfoObjectIds = await this.pythClient.updatePriceFeeds(
+      txb,
+      priceUpdateData,
+      priceIdArray
+    );
+
+
 
     // gotta refresh everything first
 
@@ -239,9 +292,9 @@ export class SuilendClient {
       target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::withdraw`,
       arguments: [
         // lending market
-        txb.object(this.lendingMarketId),
+        txb.object(this.lendingMarket.id),
         // obligation owner cap
-        txb.object(obligationOwnerCapId),
+        txb.object(obligationOwnerCap.id),
         // clock
         txb.object(SUI_CLOCK_OBJECT_ID),
         // ctokens
@@ -251,55 +304,55 @@ export class SuilendClient {
     });
   }
 
-  borrow(
-    obligationOwnerCapId: string,
-    coinType: string,
-    amount: number,
-    txb: TransactionBlock
-  ) {
-    if (this.lendingMarketType == null) {
-      throw new Error("Error: client not initialized");
-    }
+  // borrow(
+  //   obligationOwnerCapId: string,
+  //   coinType: string,
+  //   amount: number,
+  //   txb: TransactionBlock
+  // ) {
+  //   if (this.lendingMarketType == null) {
+  //     throw new Error("Error: client not initialized");
+  //   }
 
-    return txb.moveCall({
-      target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::borrow`,
-      arguments: [
-        // lending market
-        txb.object(this.lendingMarketId),
-        // obligation owner cap
-        txb.object(obligationOwnerCapId),
-        // clock
-        txb.object(SUI_CLOCK_OBJECT_ID),
-        // ctokens
-        txb.pure(amount),
-      ],
-      typeArguments: [this.lendingMarketType, coinType],
-    });
-  }
+  //   return txb.moveCall({
+  //     target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::borrow`,
+  //     arguments: [
+  //       // lending market
+  //       txb.object(this.lendingMarket.id),
+  //       // obligation owner cap
+  //       txb.object(obligationOwnerCapId),
+  //       // clock
+  //       txb.object(SUI_CLOCK_OBJECT_ID),
+  //       // ctokens
+  //       txb.pure(amount),
+  //     ],
+  //     typeArguments: [this.lendingMarketType, coinType],
+  //   });
+  // }
 
-  repay(
-    obligationId: string,
-    coinType: string,
-    amount: number,
-    txb: TransactionBlock
-  ) {
-    if (this.lendingMarketType == null) {
-      throw new Error("Error: client not initialized");
-    }
+  // repay(
+  //   obligationId: string,
+  //   coinType: string,
+  //   amount: number,
+  //   txb: TransactionBlock
+  // ) {
+  //   if (this.lendingMarketType == null) {
+  //     throw new Error("Error: client not initialized");
+  //   }
 
-    return txb.moveCall({
-      target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::borrow`,
-      arguments: [
-        // lending market
-        txb.object(this.lendingMarketId),
-        // obligation
-        txb.object(obligationId),
-        // clock
-        txb.object(SUI_CLOCK_OBJECT_ID),
-        // ctokens
-        txb.pure(amount),
-      ],
-      typeArguments: [this.lendingMarketType, coinType],
-    });
-  }
+  //   return txb.moveCall({
+  //     target: `${SUILEND_CONTRACT_ADDRESS}::lending_market::borrow`,
+  //     arguments: [
+  //       // lending market
+  //       txb.object(this.lendingMarket.id),
+  //       // obligation
+  //       txb.object(obligationId),
+  //       // clock
+  //       txb.object(SUI_CLOCK_OBJECT_ID),
+  //       // ctokens
+  //       txb.pure(amount),
+  //     ],
+  //     typeArguments: [this.lendingMarketType, coinType],
+  //   });
+  // }
 }
