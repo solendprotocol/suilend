@@ -217,11 +217,18 @@ module suilend::test_helpers {
         test_scenario::next_tx(scenario, user);
 
         let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-        let coins = lending_market::withdraw<P, T>(
+        let ctokens = lending_market::withdraw_ctokens<P, T>(
             &mut lending_market, 
             obligation_owner_cap,
             clock,
             amount,
+            test_scenario::ctx(scenario)
+        );
+
+        let coins = lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
+            &mut lending_market,
+            clock,
+            ctokens,
             test_scenario::ctx(scenario)
         );
 
@@ -239,11 +246,18 @@ module suilend::test_helpers {
         test_scenario::next_tx(scenario, liquidator);
 
         let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
-        let (repay_coins, withdraw_coins) = lending_market::liquidate<P, Repay, Withdraw>(
+        let (repay_coins, withdraw_ctokens) = lending_market::liquidate<P, Repay, Withdraw>(
             &mut lending_market,
             obligation_id,
             clock,
             repay,
+            test_scenario::ctx(scenario)
+        );
+
+        let withdraw_coins = lending_market::redeem_ctokens_and_withdraw_liquidity<P, Withdraw>(
+            &mut lending_market,
+            clock,
+            withdraw_ctokens,
             test_scenario::ctx(scenario)
         );
 

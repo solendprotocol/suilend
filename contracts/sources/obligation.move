@@ -1,10 +1,8 @@
 module suilend::obligation {
     use sui::object::{Self, UID};
-    use sui::balance::{Self, Balance};
     use std::vector::{Self};
-    use sui::bag::{Self, Bag};
     use sui::tx_context::{TxContext};
-    use suilend::reserve::{Self, Reserve, CToken};
+    use suilend::reserve::{Self, Reserve};
     use std::debug;
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, ge, gt, lt, min, ceil, floor};
@@ -26,8 +24,6 @@ module suilend::obligation {
 
         deposits: vector<Deposit<P>>,
         borrows: vector<Borrow<P>>,
-
-        balances: Bag,
 
         // health stats
         deposited_value_usd: Decimal,
@@ -75,7 +71,6 @@ module suilend::obligation {
             owner: owner,
             deposits: vector::empty(),
             borrows: vector::empty(),
-            balances: bag::new(ctx),
             deposited_value_usd: decimal::from(0),
             unweighted_borrowed_value_usd: decimal::from(0),
             weighted_borrowed_value_usd: decimal::from(0),
@@ -86,27 +81,11 @@ module suilend::obligation {
 
     public(friend) fun deposit<P, T>(
         obligation: &mut Obligation<P>,
-        reserve_id: u64,
-        ctokens: Balance<CToken<P, T>>,
+        reserve: &Reserve<P>,
+        ctoken_amount: u64,
     ) {
-        let deposit = find_or_add_deposit(obligation, reserve_id);
-        deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount + balance::value(&ctokens);
-        add_to_balance_bag(obligation, ctokens);
-    }
-
-    // used to index into the balance bag
-    struct Key<phantom T> has copy, drop, store {}
-
-    fun add_to_balance_bag<P, T>(
-        obligation: &mut Obligation<P>,
-        ctokens: Balance<T>,
-    ) {
-        if(bag::contains(&obligation.balances, Key<T>{})) {
-            let deposit = bag::borrow_mut(&mut obligation.balances, Key<T>{});
-            balance::join(deposit, ctokens);
-        } else {
-            bag::add(&mut obligation.balances, Key<T>{}, ctokens);
-        };
+        let deposit = find_or_add_deposit(obligation, reserve::id(reserve));
+        deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount + ctoken_amount;
     }
 
     fun find_deposit_index<P>(
@@ -313,11 +292,10 @@ module suilend::obligation {
         ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-        reserve_id: u64,
         clock: &Clock,
         amount: u64,
     ) {
-        let borrow = find_or_add_borrow(obligation, reserve_id);
+        let borrow = find_or_add_borrow(obligation, reserve::id(reserve));
 
         borrow.borrowed_amount = add(borrow.borrowed_amount, decimal::from(amount));
 
@@ -339,10 +317,9 @@ module suilend::obligation {
     public(friend) fun repay<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-        reserve_id: u64,
         amount: u64,
     ) {
-        let borrow_index = find_borrow_index(obligation, reserve_id);
+        let borrow_index = find_borrow_index(obligation, reserve::id(reserve));
         let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
 
         compound_interest(borrow, reserve);
@@ -354,11 +331,10 @@ module suilend::obligation {
         ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-        reserve_id: u64,
         clock: &Clock,
         ctoken_amount: u64,
-    ): Balance<CToken<P, T>> {
-        let deposit_index = find_deposit_index(obligation, reserve_id);
+    ) {
+        let deposit_index = find_deposit_index(obligation, reserve::id(reserve));
         let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
 
         let liquidity_amount = mul(
@@ -390,28 +366,24 @@ module suilend::obligation {
 
         assert!(is_healthy(obligation), EObligationIsUnhealthy);
         let RefreshedTicket {} = ticket;
-
-        let deposit = bag::borrow_mut(&mut obligation.balances, Key<CToken<P, T>>{});
-        balance::split(deposit, ctoken_amount)
     }
 
-    public(friend) fun liquidate<P, Repay, Withdraw>(
+    public(friend) fun liquidate<P>(
         _ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         repay_reserve: &Reserve<P>,
-        repay_reserve_id: u64,
         withdraw_reserve: &Reserve<P>,
-        withdraw_reserve_id: u64,
         clock: &Clock,
-        repay_balance: &Balance<Repay>
-    ): (Balance<CToken<P, Withdraw>>, u64) {
+        repay_amount: u64,
+    ): (u64, u64) {
         assert!(is_unhealthy(obligation), EObligationIsHealthy);
-        let borrow = find_borrow(obligation, repay_reserve_id);
-        let deposit = find_deposit(obligation, withdraw_reserve_id);
+
+        let borrow = find_borrow(obligation, reserve::id(repay_reserve));
+        let deposit = find_deposit(obligation, reserve::id(withdraw_reserve));
 
         let repay_amount = min(
             mul(borrow.borrowed_amount, decimal::from_percent(CLOSE_FACTOR_PCT)),
-            decimal::from(balance::value(repay_balance))
+            decimal::from(repay_amount)
         );
 
         let repay_value = reserve::market_value(repay_reserve, clock, repay_amount);
@@ -442,22 +414,19 @@ module suilend::obligation {
         };
 
         {
-            let borrow = find_borrow_mut(obligation, repay_reserve_id);
+            let borrow = find_borrow_mut(obligation, reserve::id(repay_reserve));
             borrow.borrowed_amount = sub(borrow.borrowed_amount, final_settle_amount);
         };
 
         {
-            let deposit = find_deposit_mut(obligation, withdraw_reserve_id);
+            let deposit = find_deposit_mut(obligation, reserve::id(withdraw_reserve));
             deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount - final_withdraw_amount;
         };
 
-        let deposit = bag::borrow_mut(&mut obligation.balances, Key<CToken<P, Withdraw>>{});
-        let withdraw_balance = balance::split(deposit, final_withdraw_amount);
-
         debug::print(&b"hi");
         debug::print(&final_repay_amount);
-        debug::print(&withdraw_balance);
-        (withdraw_balance, final_repay_amount)
+        debug::print(&final_withdraw_amount);
+        (final_withdraw_amount, final_repay_amount)
     }
 
     const HEALTH_STATUS_HEALTHY: u64 = 0;

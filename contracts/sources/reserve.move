@@ -1,6 +1,6 @@
 module suilend::reserve {
     use sui::object::{Self, UID};
-    use sui::balance::{Self, Balance, Supply};
+    use sui::balance::{Self, Supply};
     use sui::tx_context::{TxContext};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor};
     use sui::clock::{Self, Clock};
@@ -88,6 +88,8 @@ module suilend::reserve {
     }
 
     struct Reserve<phantom P> has store {
+        id: u64,
+
         config: Option<ReserveConfig>,
         mint_decimals: u8,
 
@@ -107,16 +109,8 @@ module suilend::reserve {
         fees_accumulated: Decimal
     }
 
-    // holds all the strongly typed stuff. Reserve intentionally doesn't have the coin type parameter.
-    struct ReserveTreasury<phantom P, phantom T> has store {
-        // reserve_treasury.reserve_id belongs to lending_market.reserves(reserve_treasury.reserve_id)
-        reserve_id: u64,
-        available_amount: Balance<T>,
-        ctoken_supply: Supply<CToken<P, T>>
-    }
-
-    public fun reserve_id<P, T>(reserve_treasury: &ReserveTreasury<P, T>): u64 {
-        reserve_treasury.reserve_id
+    public fun id<P>(reserve: &Reserve<P>): u64 {
+        reserve.id
     }
 
     fun get_pyth_price_and_identifier(price_info_obj: &PriceInfoObject): (Decimal, PriceIdentifier) {
@@ -151,31 +145,27 @@ module suilend::reserve {
         price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
         reserve_id: u64,
-    ): (Reserve<P>, ReserveTreasury<P, T>) {
+    ): (Reserve<P>, Supply<CToken<P, T>>) {
 
         let (price_decimal, price_identifier) = get_pyth_price_and_identifier(price_info_obj);
 
-        let reserve = Reserve {
-            config: option::some(config),
-            mint_decimals: coin::get_decimals(coin_metadata),
-            price_identifier,
-            price: price_decimal,
-            price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-            available_amount: 0,
-            ctoken_supply: 0,
-            borrowed_amount: decimal::from(0),
-            cumulative_borrow_rate: decimal::from(1),
-            interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-            fees_accumulated: decimal::from(0)
-        };
-
-        let reserve_treasury = ReserveTreasury {
-            reserve_id,
-            available_amount: balance::zero(),
-            ctoken_supply: balance::create_supply(CToken<P, T> {})
-        };
-
-        (reserve, reserve_treasury)
+        (
+            Reserve {
+                id: reserve_id,
+                config: option::some(config),
+                mint_decimals: coin::get_decimals(coin_metadata),
+                price_identifier,
+                price: price_decimal,
+                price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+                available_amount: 0,
+                ctoken_supply: 0,
+                borrowed_amount: decimal::from(0),
+                cumulative_borrow_rate: decimal::from(1),
+                interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+                fees_accumulated: decimal::from(0)
+            },
+            balance::create_supply(CToken<P, T> {})
+        )
     }
 
     public(friend) fun update_reserve_config<P>(
@@ -340,78 +330,68 @@ module suilend::reserve {
         }
     }
 
-    public(friend) fun deposit_liquidity_and_mint_ctokens<P, T>(
+    public(friend) fun deposit_liquidity_and_mint_ctokens<P>(
         reserve: &mut Reserve<P>, 
-        reserve_treasury: &mut ReserveTreasury<P, T>, 
-        liquidity: Balance<T>, 
+        liquidity_amount: u64, 
         clock: &Clock,
-    ): Balance<CToken<P, T>> {
+    ): u64 {
         compound_interest(reserve, clock);
 
         let ctoken_ratio = ctoken_ratio(reserve);
 
         let new_ctokens = floor(div(
-            decimal::from(balance::value(&liquidity)),
+            decimal::from(liquidity_amount),
             ctoken_ratio
         ));
 
         // FIXME: check deposit limits
 
-        reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
+        reserve.available_amount = reserve.available_amount + liquidity_amount;
         reserve.ctoken_supply = reserve.ctoken_supply + new_ctokens;
 
-        balance::join(&mut reserve_treasury.available_amount, liquidity);
-        balance::increase_supply(&mut reserve_treasury.ctoken_supply, new_ctokens)
+        new_ctokens
     }
 
-    public(friend) fun redeem_ctokens<P, T>(
+    public(friend) fun redeem_ctokens<P>(
         reserve: &mut Reserve<P>, 
-        reserve_treasury: &mut ReserveTreasury<P, T>, 
-        ctokens: Balance<CToken<P, T>>, 
+        ctoken_amount: u64, 
         clock: &Clock,
-    ): Balance<T> {
+    ): u64 {
         compound_interest(reserve, clock);
 
         let ctoken_ratio = ctoken_ratio(reserve);
 
-        let liquidity = floor(mul(
-            decimal::from(balance::value(&ctokens)),
+        let liquidity_amount = floor(mul(
+            decimal::from(ctoken_amount),
             ctoken_ratio
         ));
 
-        reserve.available_amount = reserve.available_amount - liquidity;
-        reserve.ctoken_supply = reserve.ctoken_supply - balance::value(&ctokens);
+        reserve.available_amount = reserve.available_amount - liquidity_amount;
+        reserve.ctoken_supply = reserve.ctoken_supply - ctoken_amount;
 
-        balance::decrease_supply(&mut reserve_treasury.ctoken_supply, ctokens);
-        balance::split(&mut reserve_treasury.available_amount, liquidity)
+        liquidity_amount
     }
 
-    public(friend) fun borrow_liquidity<P, T>(
+    public(friend) fun borrow_liquidity<P>(
         reserve: &mut Reserve<P>, 
-        reserve_treasury: &mut ReserveTreasury<P, T>, 
         clock: &Clock,
         liquidity_amount: u64
-    ): Balance<T> {
+    ) {
         compound_interest(reserve, clock);
 
         // FIXME: check borrow limits
         reserve.available_amount = reserve.available_amount - liquidity_amount;
         reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(liquidity_amount));
-
-        balance::split(&mut reserve_treasury.available_amount, liquidity_amount)
     }
 
-    public(friend) fun repay_liquidity<P, T>(
+    public(friend) fun repay_liquidity<P>(
         reserve: &mut Reserve<P>, 
-        reserve_treasury: &mut ReserveTreasury<P, T>, 
         clock: &Clock,
-        liquidity: Balance<T>
+        repay_amount: u64
     ) {
         compound_interest(reserve, clock);
 
-        reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
-        reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
-
-        balance::join(&mut reserve_treasury.available_amount, liquidity);
+        reserve.available_amount = reserve.available_amount + repay_amount;
+        reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(repay_amount));
     }
 }

@@ -439,7 +439,7 @@ module suilend::test_lm {
             &clock,
             500_000
         );
-        let coinz = coin::split(&mut borrowed_usdc, 50_000, test_scenario::ctx(&mut scenario));
+        let coinz = coin::split(&mut borrowed_usdc, 25_000, test_scenario::ctx(&mut scenario));
 
         let config = reserve::create_reserve_config(
             0,
