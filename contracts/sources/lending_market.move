@@ -9,14 +9,10 @@ module suilend::lending_market {
     use suilend::reserve::{Self, Reserve, ReserveTreasury, ReserveConfig, CToken};
     use std::vector::{Self};
     use std::debug::{Self};
-    use std::string::{Self};
-    use std::option::{Option, Self};
-    use suilend::decimal::{Self, Decimal};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
-    use sui::balance::{Self, Balance};
-    use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self, PriceFeed};
+    use sui::balance::{Self};
+    use pyth::price_info::{PriceInfoObject};
 
     /* errors */
     const ENotAOneTimeWitness: u64 = 0;

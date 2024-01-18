@@ -1,20 +1,18 @@
 module suilend::reserve {
-    use sui::object::{Self, ID, UID};
+    use sui::object::{Self, UID};
     use sui::balance::{Self, Balance, Supply};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{TxContext};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor};
-    use std::vector::{Self};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self, pow};
     use std::option::{Self, Option};
     use std::debug;
     use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self, PriceFeed};
-    use pyth::price_identifier::{Self, PriceIdentifier};
+    use pyth::price_feed::{Self};
+    use pyth::price_identifier::{PriceIdentifier};
     use pyth::price::{Self};
-    use pyth::i64::{Self, I64};
+    use pyth::i64::{Self};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -270,7 +268,7 @@ module suilend::reserve {
         }
     }
 
-    public fun calculate_apr<P>(reserve: &Reserve<P>): Decimal {
+    public fun calculate_apr<P>(_reserve: &Reserve<P>): Decimal {
         decimal::from_percent(5)
     }
 

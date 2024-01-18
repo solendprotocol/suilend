@@ -1,14 +1,13 @@
 module suilend::obligation {
-    use sui::object::{Self, ID, UID};
+    use sui::object::{Self, UID};
     use sui::balance::{Self, Balance};
     use std::vector::{Self};
     use sui::bag::{Self, Bag};
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, CToken};
     use std::debug;
-    use sui::clock::{Self, Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, ge, gt, eq, lt, min, max, ceil, floor};
-    use std::option::{Self, Option};
+    use sui::clock::{Clock};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, ge, gt, lt, min, ceil, floor};
 
     friend suilend::lending_market;
 
@@ -118,7 +117,7 @@ module suilend::obligation {
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
             if (deposit.reserve_id == reserve_id) {
-                return i;
+                return i
             };
 
             i = i + 1;
@@ -135,7 +134,7 @@ module suilend::obligation {
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
             if (borrow.reserve_id == reserve_id) {
-                return i;
+                return i
             };
 
             i = i + 1;
@@ -190,7 +189,7 @@ module suilend::obligation {
     ): &mut Borrow<P> {
         let i = find_borrow_index(obligation, reserve_id);
         if (i < vector::length(&obligation.borrows)) {
-            return vector::borrow_mut(&mut obligation.borrows, i);
+            return vector::borrow_mut(&mut obligation.borrows, i)
         };
 
         let borrow = Borrow<P> {
@@ -211,7 +210,7 @@ module suilend::obligation {
     ): &mut Deposit<P> {
         let i = find_deposit_index(obligation, reserve_id);
         if (i < vector::length(&obligation.deposits)) {
-            return vector::borrow_mut(&mut obligation.deposits, i);
+            return vector::borrow_mut(&mut obligation.deposits, i)
         };
 
         let deposit = Deposit<P> {

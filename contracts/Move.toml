@@ -10,17 +10,12 @@ rev = "09b2081498366df936abae26eea4b2d5cafb2788"
 [dependencies.Pyth]
 git = "https://github.com/0xripleys/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
-rev = "09d7a05254ce5a205533c20774325df5e8d4242b"
+rev = "7e72f2754ffdb9138ac2d9ba11a014e7638132f2"
 
 # [dependencies.Pyth]
 # git = "https://github.com/0xripleys/pyth-crosschain.git"
 # subdir = "target_chains/sui/contracts"
 # rev = "420bd4e0a6071b2ad137a992a665963b0a8dfc3a"
-[dev-addresses]
-sui = "0x2"
-suilend = "0x0"
-pyth = "0x0"
-
 
 [addresses]
 sui = "0x2"

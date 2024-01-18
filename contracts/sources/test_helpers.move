@@ -8,17 +8,15 @@ module suilend::test_helpers {
         LendingMarketOwnerCap, 
         ObligationOwnerCap
     };
+    use pyth::price_info::{PriceInfoObject};
     use sui::clock::{Self, Clock};
     use suilend::reserve::{
         Self,
         ReserveConfig,
         CToken
     };
-    use sui::transfer::{Self};
-    use sui::coin::{Self, Coin, CoinMetadata};
-    use std::option::{Self, Option};
-    use std::vector::{Self};
-    use sui::object::{Self, ID};
+    use sui::coin::{Coin, CoinMetadata};
+    use sui::object::{ID};
 
     public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address): LendingMarketOwnerCap<P> {
         test_scenario::next_tx(scenario, owner);
@@ -72,7 +70,7 @@ module suilend::test_helpers {
         scenario: &mut Scenario, 
         owner: address,
         owner_cap: &LendingMarketOwnerCap<P>,
-        price: u256,
+        priceInfoObject: &PriceInfoObject,
         config: ReserveConfig,
         clock: &Clock,
     ) {
@@ -83,7 +81,7 @@ module suilend::test_helpers {
             lending_market::add_reserve<P, T>(
                 owner_cap,
                 &mut lending_market,
-                price,
+                priceInfoObject,
                 config,
                 &metadata,
                 clock,
