@@ -191,13 +191,16 @@ module suilend::reserve {
         object::delete(id);
     }
 
-    public fun price<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+    public fun assert_price_is_fresh<P>(reserve: &Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         assert!(
             cur_time_s - reserve.price_last_update_timestamp_s <= PRICE_STALENESS_THRESHOLD_S, 
             EPriceStale
         );
+    }
 
+    // if SUI = $1, this returns decimal::from(1).
+    public fun price<P>(reserve: &Reserve<P>): Decimal {
         reserve.price
     }
 
@@ -225,17 +228,30 @@ module suilend::reserve {
 
     public fun market_value<P>(
         reserve: &Reserve<P>, 
-        clock: &Clock, 
         liquidity_amount: Decimal
     ): Decimal {
         div(
             mul(
-                price(reserve, clock),
+                price(reserve),
                 liquidity_amount
             ),
             decimal::from(pow(10, reserve.mint_decimals))
         )
     }
+
+    public fun ctoken_market_value<P>(
+        reserve: &Reserve<P>, 
+        ctoken_amount: u64
+    ): Decimal {
+        // TODO should i floor here?
+        let liquidity_amount = mul(
+            decimal::from(ctoken_amount),
+            ctoken_ratio(reserve)
+        );
+
+        market_value(reserve, liquidity_amount)
+    }
+
 
     public fun cumulative_borrow_rate<P>(reserve: &Reserve<P>): Decimal {
         reserve.cumulative_borrow_rate

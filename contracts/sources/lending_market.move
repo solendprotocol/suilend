@@ -1,5 +1,6 @@
 module suilend::lending_market {
     use sui::object::{Self, ID, UID};
+    use suilend::decimal::{Self};
     use sui::object_bag::{Self, ObjectBag};
     use sui::bag::{Self, Bag};
     use sui::clock::{Clock};
@@ -239,7 +240,6 @@ module suilend::lending_market {
             refreshed_ticket, 
             obligation, 
             reserve, 
-            clock, 
             amount
         );
 
@@ -262,57 +262,14 @@ module suilend::lending_market {
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
-        obligation::withdraw<P, T>(
+        obligation::withdraw<P>(
             refreshed_ticket, 
             obligation, 
             reserve, 
-            clock, 
             amount
         );
 
         coin::from_balance(balance::split(&mut balances.deposited_ctokens, amount), ctx)
-    }
-
-    fun get_reserve<P, T>(
-        lending_market: &LendingMarket<P>,
-    ): (&Reserve<P>, &Balances<P, T>) {
-        let balances: &Balances<P, T> = bag::borrow(
-            &lending_market.balances, 
-            Name<T> {}
-        );
-
-        let reserve = vector::borrow(
-            &lending_market.reserves, 
-            balances.reserve_id
-        );
-
-        (reserve, balances)
-    }
-
-    fun get_reserve_mut<P, T>(
-        lending_market: &mut LendingMarket<P>,
-    ): (&mut Reserve<P>, &mut Balances<P, T>) {
-        let balances: &mut Balances<P, T> = bag::borrow_mut(
-            &mut lending_market.balances, 
-            Name<T> {}
-        );
-
-        let reserve = vector::borrow_mut(
-            &mut lending_market.reserves, 
-            balances.reserve_id
-        );
-
-        (reserve, balances)
-    }
-
-    fun get_obligation_mut<P>(
-        lending_market: &mut LendingMarket<P>,
-        obligation_id: ID
-    ): &mut Obligation<P> {
-        object_bag::borrow_mut(
-            &mut lending_market.obligations, 
-            obligation_id
-        )
     }
 
     public fun liquidate<P, Repay, Withdraw>(
@@ -337,7 +294,6 @@ module suilend::lending_market {
             &mut obligation, 
             repay_reserve, 
             withdraw_reserve, 
-            clock, 
             coin::value(&repay_coins)
         );
 
@@ -382,7 +338,7 @@ module suilend::lending_market {
         obligation::repay<P>(
             obligation, 
             reserve, 
-            coin::value(&repay_coins)
+            decimal::from(coin::value(&repay_coins))
         );
 
         reserve::repay_liquidity<P>(
@@ -393,6 +349,49 @@ module suilend::lending_market {
 
         balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));
     }
+
+    fun get_reserve<P, T>(
+        lending_market: &LendingMarket<P>,
+    ): (&Reserve<P>, &Balances<P, T>) {
+        let balances: &Balances<P, T> = bag::borrow(
+            &lending_market.balances, 
+            Name<T> {}
+        );
+
+        let reserve = vector::borrow(
+            &lending_market.reserves, 
+            balances.reserve_id
+        );
+
+        (reserve, balances)
+    }
+
+    fun get_reserve_mut<P, T>(
+        lending_market: &mut LendingMarket<P>,
+    ): (&mut Reserve<P>, &mut Balances<P, T>) {
+        let balances: &mut Balances<P, T> = bag::borrow_mut(
+            &mut lending_market.balances, 
+            Name<T> {}
+        );
+
+        let reserve = vector::borrow_mut(
+            &mut lending_market.reserves, 
+            balances.reserve_id
+        );
+
+        (reserve, balances)
+    }
+
+    fun get_obligation_mut<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID
+    ): &mut Obligation<P> {
+        object_bag::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_id
+        )
+    }
+
 
     #[test_only]
     public fun print_obligation<P>(
