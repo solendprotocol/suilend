@@ -1,12 +1,9 @@
 module suilend::reserve {
-    use sui::object::{Self, UID};
     use sui::balance::{Self, Supply};
-    use sui::tx_context::{TxContext};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self, pow};
-    use std::option::{Self, Option};
     use std::debug;
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
@@ -32,9 +29,7 @@ module suilend::reserve {
         last_update_timestamp_ms: u64
     }
 
-    struct ReserveConfig has store {
-        id: UID,
-
+    struct ReserveConfig has store, drop {
         // risk params
         open_ltv_pct: u8,
         close_ltv_pct: u8,
@@ -62,10 +57,8 @@ module suilend::reserve {
         liquidation_fee_bps: u64, 
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
-        ctx: &mut TxContext, 
     ): ReserveConfig {
         ReserveConfig {
-            id: object::new(ctx),
             open_ltv_pct,
             close_ltv_pct,
             borrow_weight_bps,
@@ -90,7 +83,7 @@ module suilend::reserve {
     struct Reserve<phantom P> has store {
         id: u64,
 
-        config: Option<ReserveConfig>,
+        config: ReserveConfig,
         mint_decimals: u8,
 
         // oracles
@@ -152,7 +145,7 @@ module suilend::reserve {
         (
             Reserve {
                 id: reserve_id,
-                config: option::some(config),
+                config,
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
                 price: price_decimal,
@@ -172,23 +165,7 @@ module suilend::reserve {
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
     ) {
-        let old_config = option::extract(&mut reserve.config);
-        option::fill(&mut reserve.config, config);
-
-        let ReserveConfig { 
-            id, 
-            open_ltv_pct: _, 
-            close_ltv_pct: _, 
-            borrow_weight_bps: _, 
-            deposit_limit: _, 
-            borrow_limit: _, 
-            liquidation_bonus_pct: _,
-            borrow_fee_bps: _,
-            spread_fee_bps: _,
-            liquidation_fee_bps: _,
-            interest_rate: _
-        } = old_config;
-        object::delete(id);
+        reserve.config = config;
     }
 
     public fun assert_price_is_fresh<P>(reserve: &Reserve<P>, clock: &Clock) {
@@ -279,19 +256,19 @@ module suilend::reserve {
     }
 
     public fun open_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(option::borrow(&reserve.config).open_ltv_pct)
+        decimal::from_percent(reserve.config.open_ltv_pct)
     }
 
     public fun close_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(option::borrow(&reserve.config).close_ltv_pct)
+        decimal::from_percent(reserve.config.close_ltv_pct)
     }
 
     public fun borrow_weight<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_bps(option::borrow(&reserve.config).borrow_weight_bps)
+        decimal::from_bps(reserve.config.borrow_weight_bps)
     }
 
     public fun liquidation_bonus<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(option::borrow(&reserve.config).liquidation_bonus_pct)
+        decimal::from_percent(reserve.config.liquidation_bonus_pct)
     }
 
     // compound interest every second
