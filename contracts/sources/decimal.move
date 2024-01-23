@@ -19,6 +19,12 @@ module suilend::decimal {
         }
     }
 
+    public fun from_percent_u64(v: u64): Decimal {
+        Decimal {
+            value: (v as u256) * WAD / 100
+        }
+    }
+
     public fun from_bps(v: u64): Decimal {
         Decimal {
             value: (v as u256) * WAD / 10_000
@@ -57,6 +63,19 @@ module suilend::decimal {
         Decimal {
             value: (a.value * WAD) / b.value
         }
+    }
+
+    // TODO: optimize this
+    public fun pow(b: Decimal, e: u64): Decimal {
+        let i = 0;
+        let product = from(1);
+
+        while (i < e) {
+            product = mul(product, b);
+            i = i + 1;
+        };
+
+        product
     }
 
     public fun floor(a: Decimal): u64 {
@@ -106,12 +125,17 @@ module suilend::decimal {
 
 #[test_only]
 module suilend::decimal_tests {
-    use suilend::decimal::{Self, add};
+    use suilend::decimal::{Self, add, pow};
 
     #[test]
     fun test_add() {
         let a = decimal::from(1);
         let b = decimal::from(2);
         assert!(add(a, b) == decimal::from(3), 0);
+    }
+
+    #[test]
+    fun test_pow() {
+        assert!(pow(decimal::from(5), 4) == decimal::from(625), 0);
     }
 }

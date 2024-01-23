@@ -7,7 +7,8 @@ module suilend::lending_market {
     use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
-    use suilend::reserve::{Self, Reserve, ReserveConfig, CToken};
+    use suilend::reserve::{Self, Reserve, CToken};
+    use suilend::reserve_config::{ReserveConfig};
     use std::vector::{Self};
     use std::debug::{Self};
     use suilend::obligation::{Self, Obligation};

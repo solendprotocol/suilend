@@ -1,14 +1,14 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
     use suilend::oracles::{Self};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, ge, le};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self};
-    use std::debug;
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
     use std::vector::{Self};
+    use suilend::reserve_config::{Self, ReserveConfig, calculate_apr, deposit_limit, borrow_limit};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -21,93 +21,8 @@ module suilend::reserve {
     /* errors */
     const EPriceStale: u64 = 0;
     const EPriceIdentifierMismatch: u64 = 1;
-    const EInvalidReserveConfig: u64 = 2;
-
-    struct ReserveConfig has store, drop {
-        // risk params
-        open_ltv_pct: u8,
-        close_ltv_pct: u8,
-        borrow_weight_bps: u64,
-        deposit_limit: u64,
-        borrow_limit: u64,
-        liquidation_bonus_pct: u8,
-
-        // interest params
-        interest_rate_utils: vector<u8>,
-        interest_rate_aprs: vector<u64>,
-
-        // fees
-        borrow_fee_bps: u64,
-        spread_fee_bps: u64,
-        liquidation_fee_bps: u64,
-    }
-
-    public fun create_reserve_config(
-        open_ltv_pct: u8, 
-        close_ltv_pct: u8, 
-        borrow_weight_bps: u64, 
-        deposit_limit: u64, 
-        borrow_limit: u64, 
-        liquidation_bonus_pct: u8,
-        borrow_fee_bps: u64, 
-        spread_fee_bps: u64, 
-        liquidation_fee_bps: u64, 
-        interest_rate_utils: vector<u8>,
-        interest_rate_aprs: vector<u64>,
-    ): ReserveConfig {
-        let config = ReserveConfig {
-            open_ltv_pct,
-            close_ltv_pct,
-            borrow_weight_bps,
-            deposit_limit,
-            borrow_limit,
-            liquidation_bonus_pct,
-            interest_rate_utils,
-            interest_rate_aprs,
-            borrow_fee_bps,
-            spread_fee_bps,
-            liquidation_fee_bps,
-        };
-
-        validate_reserve_config(&config);
-        config
-    }
-
-    fun validate_reserve_config(config: &ReserveConfig) {
-        assert!(config.open_ltv_pct <= 100, EInvalidReserveConfig);
-        assert!(config.close_ltv_pct <= 100, EInvalidReserveConfig);
-        assert!(config.open_ltv_pct <= config.close_ltv_pct, EInvalidReserveConfig);
-
-        assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_bonus_pct <= 20, EInvalidReserveConfig);
-
-        assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
-        assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_fee_bps <= 10_000, EInvalidReserveConfig);
-
-        validate_utils_and_aprs(&config.interest_rate_utils, &config.interest_rate_aprs);
-    }
-
-    fun validate_utils_and_aprs(utils: &vector<u8>, aprs: &vector<u64>) {
-        assert!(vector::length(utils) >= 2, EInvalidReserveConfig);
-        assert!(
-            vector::length(utils) == vector::length(aprs), 
-            EInvalidReserveConfig
-        );
-
-        let length = vector::length(utils);
-        assert!(*vector::borrow(utils, 0) == 0, EInvalidReserveConfig);
-        assert!(*vector::borrow(utils, length-1) == 100, EInvalidReserveConfig);
-
-        // check that both vectors are strictly increasing
-        let i = 1;
-        while (i < length) {
-            assert!(*vector::borrow(utils, i - 1) < *vector::borrow(utils, i), EInvalidReserveConfig);
-            assert!(*vector::borrow(aprs, i - 1) < *vector::borrow(aprs, i), EInvalidReserveConfig);
-
-            i = i + 1;
-        }
-    }
+    const EDepositLimitExceeded: u64 = 2;
+    const EBorrowLimitExceeded: u64 = 3;
 
     struct Reserve<phantom P> has store {
         id: u64,
@@ -129,10 +44,6 @@ module suilend::reserve {
         interest_last_update_timestamp_s: u64,
 
         fees_accumulated: Decimal
-    }
-
-    public fun id<P>(reserve: &Reserve<P>): u64 {
-        reserve.id
     }
 
     public(friend) fun create_reserve<P, T>(
@@ -164,11 +75,8 @@ module suilend::reserve {
         )
     }
 
-    public(friend) fun update_reserve_config<P>(
-        reserve: &mut Reserve<P>, 
-        config: ReserveConfig, 
-    ) {
-        reserve.config = config;
+    public fun id<P>(reserve: &Reserve<P>): u64 {
+        reserve.id
     }
 
     public fun assert_price_is_fresh<P>(reserve: &Reserve<P>, clock: &Clock) {
@@ -182,18 +90,6 @@ module suilend::reserve {
     // if SUI = $1, this returns decimal::from(1).
     public fun price<P>(reserve: &Reserve<P>): Decimal {
         reserve.price
-    }
-
-    public fun update_price<P>(
-        reserve: &mut Reserve<P>, 
-        clock: &Clock,
-        price_info_obj: &PriceInfoObject
-    ) {
-        let (price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj);
-        assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
-
-        reserve.price = price_decimal;
-        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
     public fun market_value<P>(
@@ -244,78 +140,63 @@ module suilend::reserve {
         }
     }
 
-    public fun calculate_apr<P>(reserve: &Reserve<P>): Decimal {
-        let length = vector::length(&reserve.config.interest_rate_utils);
+    // always greater than or equal to one
+    public fun ctoken_ratio<P>(reserve: &Reserve<P>): Decimal {
+        let total_supply = total_supply(reserve);
 
-        let cur_util = calculate_utilization_rate(reserve);
-
-        let i = 1;
-        while (i < length) {
-            let left_util = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i - 1));
-            let right_util = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i));
-
-            if (ge(cur_util, left_util) && le(cur_util, right_util)) {
-                let left_apr = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i - 1));
-                let right_apr = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i));
-
-                let weight = div(
-                    sub(cur_util, left_util),
-                    sub(right_util, left_util)
-                );
-
-                let apr_diff = sub(right_apr, left_apr);
-                return add(
-                    left_apr,
-                    mul(weight, apr_diff)
-                )
-            };
-
-            i = i + 1;
-        };
-
-        // should never get here
-        assert!(1 == 0, EInvalidReserveConfig);
-        decimal::from(0)
+        if (eq(total_supply, decimal::from(0))) {
+            decimal::from(1)
+        }
+        else {
+            div(
+                total_supply,
+                decimal::from(reserve.ctoken_supply)
+            )
+        }
     }
 
-    public fun open_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(reserve.config.open_ltv_pct)
+    public fun config<P>(reserve: &Reserve<P>): &ReserveConfig {
+        &reserve.config
     }
 
-    public fun close_ltv<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(reserve.config.close_ltv_pct)
+    public(friend) fun update_reserve_config<P>(
+        reserve: &mut Reserve<P>, 
+        config: ReserveConfig, 
+    ) {
+        reserve.config = config;
     }
 
-    public fun borrow_weight<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_bps(reserve.config.borrow_weight_bps)
-    }
+    public fun update_price<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        price_info_obj: &PriceInfoObject
+    ) {
+        let (price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj);
+        assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
 
-    public fun liquidation_bonus<P>(reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(reserve.config.liquidation_bonus_pct)
+        reserve.price = price_decimal;
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
     // compound interest every second
     public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
-        let time_elapsed = decimal::from(cur_time_s - reserve.interest_last_update_timestamp_s);
-        if (eq(time_elapsed, decimal::from(0))) {
+        let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
+        if (time_elapsed_s == 0) {
             return
         };
-        debug::print(&8);
-        debug::print(&time_elapsed);
 
         // I(t + n) = I(t) * (1 + apr()/SECONDS_IN_YEAR) ^ n
-        // since we don't have the pow() function, approximate with:
-        // I(t + n) = I(t) * (1 + apr()/SECONDS_IN_YEAR * n)
-        let additional_borrow_rate = add(
-            decimal::from(1),
-            mul(
+        let utilization_rate = calculate_utilization_rate(reserve);
+        let additional_borrow_rate = pow(
+            add(
+                decimal::from(1),
                 div(
-                    calculate_apr(reserve),
+                    calculate_apr(&reserve.config, utilization_rate),
                     decimal::from(365 * 24 * 60 * 60)
-                ),
-                time_elapsed
-            )
+                )
+            ),
+            time_elapsed_s
         );
 
         reserve.cumulative_borrow_rate = mul(
@@ -329,21 +210,6 @@ module suilend::reserve {
         );
 
         reserve.interest_last_update_timestamp_s = cur_time_s;
-    }
-
-    // always greater than one
-    public fun ctoken_ratio<P>(reserve: &Reserve<P>): Decimal {
-        let total_supply = total_supply(reserve);
-
-        if (eq(total_supply, decimal::from(0))) {
-            decimal::from(1)
-        }
-        else {
-            div(
-                total_supply,
-                decimal::from(reserve.ctoken_supply)
-            )
-        }
     }
 
     public(friend) fun deposit_liquidity_and_mint_ctokens<P>(
@@ -360,10 +226,13 @@ module suilend::reserve {
             ctoken_ratio
         ));
 
-        // FIXME: check deposit limits
-
         reserve.available_amount = reserve.available_amount + liquidity_amount;
         reserve.ctoken_supply = reserve.ctoken_supply + new_ctokens;
+
+        assert!(
+            le(total_supply(reserve), decimal::from(deposit_limit(&reserve.config))), 
+            EDepositLimitExceeded
+        );
 
         new_ctokens
     }
@@ -395,9 +264,13 @@ module suilend::reserve {
     ) {
         compound_interest(reserve, clock);
 
-        // FIXME: check borrow limits
         reserve.available_amount = reserve.available_amount - liquidity_amount;
         reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(liquidity_amount));
+
+        assert!(
+            le(reserve.borrowed_amount, decimal::from(borrow_limit(&reserve.config))), 
+            EBorrowLimitExceeded 
+        );
     }
 
     public(friend) fun repay_liquidity<P>(
@@ -409,5 +282,446 @@ module suilend::reserve {
 
         reserve.available_amount = reserve.available_amount + repay_amount;
         reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(repay_amount));
+    }
+
+    #[test_only]
+    fun example_reserve_config(): ReserveConfig {
+        reserve_config::create_reserve_config(
+            // open ltv pct
+            10,
+            // close ltv pct
+            10,
+            // borrow weight bps
+            10_000,
+            // deposit_limit
+            100_000,
+            // borrow_limit
+            100_000,
+            // liquidation bonus pct
+            5,
+            // borrow fee bps
+            10,
+            // spread fee bps
+            2000,
+            // liquidation fee bps
+            3000,
+            // utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 31536000);
+                v
+            }
+        )
+    }
+
+    #[test_only]
+    use pyth::price_identifier::{Self};
+
+    #[test_only]
+    fun example_price_identifier(): PriceIdentifier {
+        let v = vector::empty();
+        let i = 0;
+        while (i < 32) {
+            vector::push_back(&mut v, i);
+            i = i + 1;
+        };
+
+        price_identifier::from_byte_vec(v)
+    }
+
+    #[test]
+    fun test_accessors() {
+        use suilend::test_usdc::{TEST_USDC};
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 0,
+            fees_accumulated: decimal::from(0)
+        };
+
+        assert!(id(&reserve) == 0, 0);
+
+        assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
+        assert!(ctoken_market_value(&reserve, 10_000_000_000) == decimal::from(50), 0);
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from(1), 0);
+        assert!(total_supply(&reserve) == decimal::from(1000), 0);
+        assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50), 0);
+        assert!(ctoken_ratio(&reserve) == decimal::from(5), 0);
+        destroy_for_testing(reserve);
+
+    }
+
+    #[test]
+    fun test_compound_interest() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 0,
+            fees_accumulated: decimal::from(0)
+        };
+
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        compound_interest(&mut reserve, &clock);
+
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
+        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
+        assert!(reserve.interest_last_update_timestamp_s == 1, 0);
+
+        // test idempotency
+
+        compound_interest(&mut reserve, &clock);
+
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
+        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
+        assert!(reserve.interest_last_update_timestamp_s == 1, 0);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_deposit_happy() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000, &clock);
+        assert!(ctoken_amount == 200, 0);
+        assert!(reserve.available_amount == 1500, 0);
+        assert!(reserve.ctoken_supply == 400, 0);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EDepositLimitExceeded)]
+    fun test_deposit_fail() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let config = reserve_config::create_reserve_config(
+            // open ltv pct
+            10,
+            // close ltv pct
+            10,
+            // borrow weight bps
+            10_000,
+            // deposit_limit
+            1000,
+            // borrow_limit
+            1,
+            // liquidation bonus pct
+            5,
+            // borrow fee bps
+            10,
+            // spread fee bps
+            2000,
+            // liquidation fee bps
+            3000,
+            // utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 31536000);
+                v
+            }
+        );
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config,
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        deposit_liquidity_and_mint_ctokens(&mut reserve, 1, &clock);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_redeem_happy() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000, &clock);
+
+        let available_amount_old = reserve.available_amount;
+        let ctoken_supply_old = reserve.ctoken_supply;
+
+        let token_amount = redeem_ctokens(&mut reserve, ctoken_amount, &clock);
+
+        assert!(token_amount == 1000, 0);
+        assert!(reserve.available_amount == available_amount_old - 1000, 0);
+        assert!(reserve.ctoken_supply == ctoken_supply_old - 200, 0);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_borrow_happy() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        borrow_liquidity(&mut reserve, &clock, 400);
+        assert!(reserve.available_amount == 100, 0);
+        assert!(reserve.borrowed_amount == decimal::from(900), 0);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EBorrowLimitExceeded)]
+    fun test_borrow_fail() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let config = reserve_config::create_reserve_config(
+            // open ltv pct
+            10,
+            // close ltv pct
+            10,
+            // borrow weight bps
+            10_000,
+            // deposit_limit
+            1000,
+            // borrow_limit
+            500,
+            // liquidation bonus pct
+            5,
+            // borrow fee bps
+            10,
+            // spread fee bps
+            2000,
+            // liquidation fee bps
+            3000,
+            // utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 31536000);
+                v
+            }
+        );
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config,
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        borrow_liquidity(&mut reserve, &clock, 1);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_repay_happy() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 1000); 
+
+        let reserve = Reserve<TEST_USDC> {
+            id: 0,
+            config: example_reserve_config(),
+            mint_decimals: 9,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 500,
+            ctoken_supply: 200,
+            borrowed_amount: decimal::from(500),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 1,
+            fees_accumulated: decimal::from(0)
+        };
+
+        borrow_liquidity(&mut reserve, &clock, 400);
+
+        assert!(reserve.available_amount == 100, 0);
+        assert!(reserve.borrowed_amount == decimal::from(900), 0);
+
+        repay_liquidity(&mut reserve, &clock, 400);
+
+        assert!(reserve.available_amount == 500, 0);
+        assert!(reserve.borrowed_amount == decimal::from(500), 0);
+
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(reserve);
+
+        test_scenario::end(scenario);
+    }
+
+
+    #[test_only]
+    public fun destroy_for_testing<P>(reserve: Reserve<P>) {
+         let Reserve {
+            id: _,
+            config: _,
+            mint_decimals: _,
+            price_identifier: _,
+            price: _,
+            price_last_update_timestamp_s: _,
+            available_amount: _,
+            ctoken_supply: _,
+            borrowed_amount: _,
+            cumulative_borrow_rate: _,
+            interest_last_update_timestamp_s: _,
+            fees_accumulated: _
+        } = reserve;
     }
 }

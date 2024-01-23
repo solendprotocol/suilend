@@ -23,40 +23,12 @@ module suilend::test_lm {
     use suilend::test_usdc::{Self, TEST_USDC};
     use suilend::test_sui::{Self, TEST_SUI};
     use suilend::lending_market::{Self, LendingMarket};
-    use suilend::reserve::{Self};
+    use suilend::reserve_config::{Self};
     use sui::test_scenario::{Self};
     use std::vector::{Self};
     use sui::clock::{Self};
 
-    // use pyth::price_info::{Self};
-    // use pyth::price_feed::{Self};
-    // use pyth::price::{Self};
-    // use pyth::price_identifier::{Self};
-    // use pyth::i64::{Self};
-    // use suilend::test_helpers::{
-    //     Self,
-    //     create_lending_market,
-    //     create_reserve_config,
-    //     create_clock,
-    //     add_reserve,
-    //     // create_obligation,
-    //     // deposit_reserve_liquidity,
-    //     // deposit_ctokens_into_obligation,
-    //     // borrow,
-    //     // withdraw,
-    //     // repay
-    // };
-    // // use std::debug;
-    // use suilend::decimal::{Self, Decimal};
-    // use suilend::test_usdc::{Self, TEST_USDC};
-    // use suilend::test_sui::{Self, TEST_SUI};
-    // use suilend::lending_market::{Self, LendingMarket};
-    // use sui::test_scenario::{Self};
-    // use std::vector::{Self};
-    // use sui::clock::{Self, Clock};
     use sui::coin::{Self};
-    // use sui::transfer::{Self};
-    // use std::option::{Self};
 
     struct TEST_LM has drop {}
 
@@ -84,7 +56,7 @@ module suilend::test_lm {
             TEST_LM {},
             test_scenario::ctx(&mut scenario)
         );
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             50,
             80,
             10_000,
@@ -166,7 +138,7 @@ module suilend::test_lm {
 
         let owner_cap = create_lending_market(&mut scenario, TEST_LM {}, owner);
         let obligation_owner_cap = create_obligation<TEST_LM>(&mut scenario, user);
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             50,
             80,
             10_000,
@@ -237,12 +209,12 @@ module suilend::test_lm {
 
         let owner_cap = create_lending_market(&mut scenario, TEST_LM {}, owner);
         let obligation_owner_cap = create_obligation<TEST_LM>(&mut scenario, user);
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             50,
             80,
             10_000,
-            1000,
-            1000,
+            100_000_000,
+            100_000_000,
             5,
             10,
             2000,
@@ -280,7 +252,7 @@ module suilend::test_lm {
             &clock,
         );
 
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             50,
             80,
             10_000,
@@ -392,12 +364,12 @@ module suilend::test_lm {
 
         let owner_cap = create_lending_market(&mut scenario, TEST_LM {}, owner);
         let obligation_owner_cap = create_obligation<TEST_LM>(&mut scenario, user);
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             50,
             80,
             10_000,
-            1000,
-            1000,
+            100_000_000,
+            100_000_000,
             5,
             10,
             2000,
@@ -455,7 +427,7 @@ module suilend::test_lm {
         );
         let coinz = coin::split(&mut borrowed_usdc, 25_000, test_scenario::ctx(&mut scenario));
 
-        let config = reserve::create_reserve_config(
+        let config = reserve_config::create_reserve_config(
             0,
             0,
             10_000,

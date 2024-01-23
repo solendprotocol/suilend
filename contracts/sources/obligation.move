@@ -2,7 +2,8 @@ module suilend::obligation {
     use sui::object::{Self, UID};
     use std::vector::{Self};
     use sui::tx_context::{TxContext};
-    use suilend::reserve::{Self, Reserve};
+    use suilend::reserve::{Self, Reserve, config};
+    use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus};
     use std::debug;
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le};
@@ -109,14 +110,14 @@ module suilend::obligation {
                 allowed_borrow_value_usd,
                 mul(
                     market_value,
-                    reserve::open_ltv(deposit_reserve)
+                    open_ltv(config(deposit_reserve))
                 )
             );
             unhealthy_borrow_value_usd = add(
                 unhealthy_borrow_value_usd,
                 mul(
                     market_value,
-                    reserve::close_ltv(deposit_reserve)
+                    close_ltv(config(deposit_reserve))
                 )
             );
 
@@ -148,7 +149,7 @@ module suilend::obligation {
                 weighted_borrowed_value_usd,
                 mul(
                     market_value,
-                    reserve::borrow_weight(borrow_reserve)
+                    borrow_weight(config(borrow_reserve))
                 )
             );
 
@@ -180,14 +181,14 @@ module suilend::obligation {
             obligation.allowed_borrow_value_usd,
             mul(
                 deposit_value,
-                reserve::open_ltv(reserve)
+                open_ltv(config(reserve))
             )
         );
         obligation.unhealthy_borrow_value_usd = add(
             obligation.unhealthy_borrow_value_usd,
             mul(
                 deposit_value,
-                reserve::close_ltv(reserve)
+                close_ltv(config(reserve))
             )
         );
     }
@@ -211,7 +212,7 @@ module suilend::obligation {
         obligation.unweighted_borrowed_value_usd = add(obligation.unweighted_borrowed_value_usd, diff);
         obligation.weighted_borrowed_value_usd = add(
             obligation.weighted_borrowed_value_usd, 
-            mul(diff, reserve::borrow_weight(reserve))
+            mul(diff, borrow_weight(config(reserve)))
         );
 
         assert!(is_healthy(obligation), EObligationIsUnhealthy);
@@ -243,7 +244,7 @@ module suilend::obligation {
         );
         obligation.weighted_borrowed_value_usd = sub(
             obligation.weighted_borrowed_value_usd,
-            mul(repay_value, reserve::borrow_weight(reserve))
+            mul(repay_value, borrow_weight(config(reserve)))
         );
     }
 
@@ -266,14 +267,14 @@ module suilend::obligation {
             obligation.allowed_borrow_value_usd,
             mul(
                 withdraw_market_value,
-                reserve::open_ltv(reserve)
+                open_ltv(config(reserve))
             )
         );
         obligation.unhealthy_borrow_value_usd = sub(
             obligation.unhealthy_borrow_value_usd,
             mul(
                 withdraw_market_value,
-                reserve::close_ltv(reserve)
+                close_ltv(config(reserve))
             )
         );
     }
@@ -310,7 +311,7 @@ module suilend::obligation {
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
         let withdraw_value = mul(
             repay_value, 
-            add(decimal::from(1), reserve::liquidation_bonus(withdraw_reserve))
+            add(decimal::from(1), liquidation_bonus(config(withdraw_reserve)))
         );
 
         let final_repay_amount;

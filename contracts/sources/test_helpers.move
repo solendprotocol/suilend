@@ -11,9 +11,11 @@ module suilend::test_helpers {
     use pyth::price_info::{PriceInfoObject};
     use sui::clock::{Self, Clock};
     use suilend::reserve::{
-        Self,
-        ReserveConfig,
         CToken
+    };
+    use suilend::reserve_config::{
+        Self,
+        ReserveConfig
     };
     use sui::coin::{Coin, CoinMetadata};
     use sui::object::{ID};
@@ -42,7 +44,7 @@ module suilend::test_helpers {
         interest_rate_aprs: vector<u64>,
     ): ReserveConfig {
         test_scenario::next_tx(scenario, owner);
-        reserve::create_reserve_config(
+        reserve_config::create_reserve_config(
             open_ltv_pct, 
             close_ltv_pct, 
             borrow_weight_bps, 
