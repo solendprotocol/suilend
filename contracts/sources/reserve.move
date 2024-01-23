@@ -1,6 +1,6 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, ge, le};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self, pow};
@@ -10,6 +10,7 @@ module suilend::reserve {
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price::{Self};
     use pyth::i64::{Self};
+    use std::vector::{Self};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -22,12 +23,7 @@ module suilend::reserve {
     /* errors */
     const EPriceStale: u64 = 0;
     const EPriceIdentifierMismatch: u64 = 1;
-
-    // temporary price struct until we integrate with pyth
-    struct Price has store {
-        price: Decimal,
-        last_update_timestamp_ms: u64
-    }
+    const EInvalidReserveConfig: u64 = 2;
 
     struct ReserveConfig has store, drop {
         // risk params
@@ -38,12 +34,14 @@ module suilend::reserve {
         borrow_limit: u64,
         liquidation_bonus_pct: u8,
 
+        // interest params
+        interest_rate_utils: vector<u8>,
+        interest_rate_aprs: vector<u64>,
+
         // fees
         borrow_fee_bps: u64,
         spread_fee_bps: u64,
         liquidation_fee_bps: u64,
-
-        interest_rate: InterestRateModel
     }
 
     public fun create_reserve_config(
@@ -52,32 +50,65 @@ module suilend::reserve {
         borrow_weight_bps: u64, 
         deposit_limit: u64, 
         borrow_limit: u64, 
+        liquidation_bonus_pct: u8,
         borrow_fee_bps: u64, 
         spread_fee_bps: u64, 
         liquidation_fee_bps: u64, 
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
     ): ReserveConfig {
-        ReserveConfig {
+        let config = ReserveConfig {
             open_ltv_pct,
             close_ltv_pct,
             borrow_weight_bps,
             deposit_limit,
             borrow_limit,
-            liquidation_bonus_pct: 5,
+            liquidation_bonus_pct,
+            interest_rate_utils,
+            interest_rate_aprs,
             borrow_fee_bps,
             spread_fee_bps,
             liquidation_fee_bps,
-            interest_rate: InterestRateModel {
-                utils: interest_rate_utils,
-                aprs: interest_rate_aprs
-            }
-        }
+        };
+
+        validate_reserve_config(&config);
+        config
     }
 
-    struct InterestRateModel has store, drop {
-        utils: vector<u8>,
-        aprs: vector<u64>
+    fun validate_reserve_config(config: &ReserveConfig) {
+        assert!(config.open_ltv_pct <= 100, EInvalidReserveConfig);
+        assert!(config.close_ltv_pct <= 100, EInvalidReserveConfig);
+        assert!(config.open_ltv_pct <= config.close_ltv_pct, EInvalidReserveConfig);
+
+        assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
+        assert!(config.liquidation_bonus_pct <= 20, EInvalidReserveConfig);
+
+        assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
+        assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
+        assert!(config.liquidation_fee_bps <= 10_000, EInvalidReserveConfig);
+
+        validate_utils_and_aprs(&config.interest_rate_utils, &config.interest_rate_aprs);
+    }
+
+    fun validate_utils_and_aprs(utils: &vector<u8>, aprs: &vector<u64>) {
+        assert!(vector::length(utils) >= 2, EInvalidReserveConfig);
+        assert!(
+            vector::length(utils) == vector::length(aprs), 
+            EInvalidReserveConfig
+        );
+
+        let length = vector::length(utils);
+        assert!(*vector::borrow(utils, 0) == 0, EInvalidReserveConfig);
+        assert!(*vector::borrow(utils, length-1) == 100, EInvalidReserveConfig);
+
+        // check that both vectors are strictly increasing
+        let i = 1;
+        while (i < length) {
+            assert!(*vector::borrow(utils, i - 1) < *vector::borrow(utils, i), EInvalidReserveConfig);
+            assert!(*vector::borrow(aprs, i - 1) < *vector::borrow(aprs, i), EInvalidReserveConfig);
+
+            i = i + 1;
+        }
     }
 
     struct Reserve<phantom P> has store {
@@ -251,8 +282,38 @@ module suilend::reserve {
         }
     }
 
-    public fun calculate_apr<P>(_reserve: &Reserve<P>): Decimal {
-        decimal::from_percent(5)
+    public fun calculate_apr<P>(reserve: &Reserve<P>): Decimal {
+        let length = vector::length(&reserve.config.interest_rate_utils);
+
+        let cur_util = calculate_utilization_rate(reserve);
+
+        let i = 1;
+        while (i < length) {
+            let left_util = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i - 1));
+            let right_util = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i));
+
+            if (ge(cur_util, left_util) && le(cur_util, right_util)) {
+                let left_apr = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i - 1));
+                let right_apr = decimal::from_percent(*vector::borrow(&reserve.config.interest_rate_utils, i));
+
+                let weight = div(
+                    sub(cur_util, left_util),
+                    sub(right_util, left_util)
+                );
+
+                let apr_diff = sub(right_apr, left_apr);
+                return add(
+                    left_apr,
+                    mul(weight, apr_diff)
+                )
+            };
+
+            i = i + 1;
+        };
+
+        // should never get here
+        assert!(1 == 0, EInvalidReserveConfig);
+        decimal::from(0)
     }
 
     public fun open_ltv<P>(reserve: &Reserve<P>): Decimal {

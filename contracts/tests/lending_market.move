@@ -90,11 +90,12 @@ module suilend::test_lm {
             10_000,
             1000,
             1000,
+            5,
             10,
-            200_000,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs()
         );
 
 
@@ -171,11 +172,12 @@ module suilend::test_lm {
             10_000,
             1000,
             1000,
+            5,
             10,
-            200_000,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs()
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -241,11 +243,12 @@ module suilend::test_lm {
             10_000,
             1000,
             1000,
+            5,
             10,
-            200_000,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs()
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -283,11 +286,12 @@ module suilend::test_lm {
             10_000,
             1000,
             1000,
+            5,
             10,
-            200_000,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs()
         );
 
         add_reserve<TEST_LM, TEST_SUI>(
@@ -352,6 +356,20 @@ module suilend::test_lm {
         test_scenario::end(scenario);
     }
 
+    fun utils(): vector<u8> {
+        let v = vector::empty();
+        vector::push_back(&mut v, 0);
+        vector::push_back(&mut v, 100);
+        v
+    }
+
+    fun aprs(): vector<u64> {
+        let v = vector::empty();
+        vector::push_back(&mut v, 0);
+        vector::push_back(&mut v, 100);
+        v
+    }
+
     #[test]
     fun test_liquidate() {
         let owner = @0x26;
@@ -380,11 +398,12 @@ module suilend::test_lm {
             10_000,
             1000,
             1000,
+            5,
             10,
-            200_000,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs()
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -443,10 +462,11 @@ module suilend::test_lm {
             1000,
             1000,
             10,
-            200_000,
+            5,
+            2000,
             10_000,
-            vector::empty(),
-            vector::empty(),
+            utils(),
+            aprs(),
         );
 
         test_helpers::update_reserve_config<TEST_LM, TEST_USDC>(&mut scenario, owner, &owner_cap, config);

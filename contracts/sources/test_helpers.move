@@ -48,6 +48,7 @@ module suilend::test_helpers {
             borrow_weight_bps, 
             deposit_limit, 
             borrow_limit, 
+            5,
             borrow_fee_bps, 
             spread_fee_bps, 
             liquidation_fee_bps, 
