@@ -134,18 +134,6 @@ module suilend::lending_market {
         reserve::update_price<P>(reserve, clock, price_info);
     }
 
-    #[test_only]
-    public fun update_price_for_testing<P, T>(
-        _: &LendingMarketOwnerCap<P>, 
-        lending_market: &mut LendingMarket<P>, 
-        clock: &Clock,
-        price: u256,
-        _ctx: &mut TxContext
-    ) {
-        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
-        reserve::update_price_for_testing<P>(reserve, clock, price);
-    }
-
     public fun create_obligation<P>(
         lending_market: &mut LendingMarket<P>, 
         ctx: &mut TxContext
