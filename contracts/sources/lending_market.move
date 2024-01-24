@@ -162,10 +162,10 @@ module suilend::lending_market {
 
         let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
 
+        reserve::compound_interest(reserve, clock);
         let ctoken_amount = reserve::deposit_liquidity_and_mint_ctokens<P>(
             reserve, 
-            coin::value(&deposit), 
-            clock, 
+            coin::value(&deposit)
         );
 
         let ctoken_balance = balance::increase_supply(&mut balances.ctoken_supply, ctoken_amount);
@@ -185,10 +185,10 @@ module suilend::lending_market {
 
         let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
 
+        reserve::compound_interest(reserve, clock);
         let liquidity_amount = reserve::redeem_ctokens<P>(
             reserve, 
-            coin::value(&ctokens), 
-            clock, 
+            coin::value(&ctokens)
         );
 
         balance::decrease_supply(&mut balances.ctoken_supply, coin::into_balance(ctokens));
@@ -238,11 +238,8 @@ module suilend::lending_market {
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
-        reserve::borrow_liquidity<P>(
-            reserve, 
-            clock,
-            amount
-        );
+        reserve::compound_interest(reserve, clock);
+        reserve::borrow_liquidity<P>(reserve, amount);
 
         obligation::borrow<P, T>(
             refreshed_ticket, 
@@ -314,11 +311,7 @@ module suilend::lending_market {
         {
             let (repay_reserve, repay_balances) = get_reserve_mut<P, Repay>(lending_market);
 
-            reserve::repay_liquidity<P>(
-                repay_reserve, 
-                clock, 
-                required_repay_amount
-            );
+            reserve::repay_liquidity<P>(repay_reserve, required_repay_amount);
 
             let required_repay_coins = coin::split(&mut repay_coins, required_repay_amount, ctx);
             balance::join(&mut repay_balances.available_amount, coin::into_balance(required_repay_coins));
@@ -349,16 +342,13 @@ module suilend::lending_market {
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
+        reserve::compound_interest(reserve, clock);
+        reserve::repay_liquidity<P>(reserve, coin::value(&repay_coins));
+
         obligation::repay<P>(
             obligation, 
             reserve, 
             decimal::from(coin::value(&repay_coins))
-        );
-
-        reserve::repay_liquidity<P>(
-            reserve, 
-            clock, 
-            coin::value(&repay_coins)
         );
 
         balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));

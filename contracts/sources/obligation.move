@@ -4,7 +4,6 @@ module suilend::obligation {
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus};
-    use std::debug;
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le};
 
@@ -338,9 +337,6 @@ module suilend::obligation {
         repay(obligation, repay_reserve, final_settle_amount);
         withdraw_unchecked(obligation, withdraw_reserve, final_withdraw_amount);
 
-        debug::print(&b"hi");
-        debug::print(&final_repay_amount);
-        debug::print(&final_withdraw_amount);
         (final_withdraw_amount, final_repay_amount)
     }
 
@@ -438,6 +434,7 @@ module suilend::obligation {
         let borrow = Borrow<P> {
             reserve_id: reserve_id,
             borrowed_amount: decimal::from(0),
+            // FIXME: this is incorrect
             cumulative_borrow_rate: decimal::from(1),
             market_value: decimal::from(0)
         };
@@ -466,5 +463,30 @@ module suilend::obligation {
         let length = vector::length(&obligation.deposits);
         vector::borrow_mut(&mut obligation.deposits, length - 1)
     }
+
+    #[test_only]
+    use suilend::reserve_config::{ReserveConfig};
+
+    /* == Tests */
+    #[test_only]
+    struct ReserveArgs {
+        id: u64,
+        config: ReserveConfig,
+        mint_decimals: u8,
+        price: Decimal,
+        price_last_update_timestamp_s: u64,
+        available_amount: u64,
+        ctoken_supply: u64,
+        borrowed_amount: Decimal,
+        cumulative_borrow_rate: Decimal,
+        interest_last_update_timestamp_s: u64,
+    }
+
+    // fun create_reserve(reserve_args: ReserveArgs): Reserve {
+    // }
+    // #[test_only]
+    // fun setup(
+    //     reserve_names: vector<TypeName>,
+    // )
 
 }

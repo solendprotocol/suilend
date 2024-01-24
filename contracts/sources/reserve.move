@@ -215,10 +215,7 @@ module suilend::reserve {
     public(friend) fun deposit_liquidity_and_mint_ctokens<P>(
         reserve: &mut Reserve<P>, 
         liquidity_amount: u64, 
-        clock: &Clock,
     ): u64 {
-        compound_interest(reserve, clock);
-
         let ctoken_ratio = ctoken_ratio(reserve);
 
         let new_ctokens = floor(div(
@@ -240,10 +237,7 @@ module suilend::reserve {
     public(friend) fun redeem_ctokens<P>(
         reserve: &mut Reserve<P>, 
         ctoken_amount: u64, 
-        clock: &Clock,
     ): u64 {
-        compound_interest(reserve, clock);
-
         let ctoken_ratio = ctoken_ratio(reserve);
 
         let liquidity_amount = floor(mul(
@@ -259,11 +253,8 @@ module suilend::reserve {
 
     public(friend) fun borrow_liquidity<P>(
         reserve: &mut Reserve<P>, 
-        clock: &Clock,
         liquidity_amount: u64
     ) {
-        compound_interest(reserve, clock);
-
         reserve.available_amount = reserve.available_amount - liquidity_amount;
         reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(liquidity_amount));
 
@@ -275,11 +266,8 @@ module suilend::reserve {
 
     public(friend) fun repay_liquidity<P>(
         reserve: &mut Reserve<P>, 
-        clock: &Clock,
         repay_amount: u64
     ) {
-        compound_interest(reserve, clock);
-
         reserve.available_amount = reserve.available_amount + repay_amount;
         reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(repay_amount));
     }
@@ -421,8 +409,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
@@ -439,12 +425,11 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000, &clock);
+        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000);
         assert!(ctoken_amount == 200, 0);
         assert!(reserve.available_amount == 1500, 0);
         assert!(reserve.ctoken_supply == 400, 0);
 
-        clock::destroy_for_testing(clock);
         destroy_for_testing(reserve);
 
         test_scenario::end(scenario);
@@ -458,8 +443,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let config = reserve_config::create_reserve_config(
             // open ltv pct
@@ -511,11 +494,9 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        deposit_liquidity_and_mint_ctokens(&mut reserve, 1, &clock);
+        deposit_liquidity_and_mint_ctokens(&mut reserve, 1);
 
-        clock::destroy_for_testing(clock);
         destroy_for_testing(reserve);
-
         test_scenario::end(scenario);
     }
 
@@ -526,8 +507,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
@@ -544,18 +523,17 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000, &clock);
+        let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000);
 
         let available_amount_old = reserve.available_amount;
         let ctoken_supply_old = reserve.ctoken_supply;
 
-        let token_amount = redeem_ctokens(&mut reserve, ctoken_amount, &clock);
+        let token_amount = redeem_ctokens(&mut reserve, ctoken_amount);
 
         assert!(token_amount == 1000, 0);
         assert!(reserve.available_amount == available_amount_old - 1000, 0);
         assert!(reserve.ctoken_supply == ctoken_supply_old - 200, 0);
 
-        clock::destroy_for_testing(clock);
         destroy_for_testing(reserve);
 
         test_scenario::end(scenario);
@@ -568,8 +546,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
@@ -586,11 +562,10 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        borrow_liquidity(&mut reserve, &clock, 400);
+        borrow_liquidity(&mut reserve, 400);
         assert!(reserve.available_amount == 100, 0);
         assert!(reserve.borrowed_amount == decimal::from(900), 0);
 
-        clock::destroy_for_testing(clock);
         destroy_for_testing(reserve);
 
         test_scenario::end(scenario);
@@ -604,8 +579,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let config = reserve_config::create_reserve_config(
             // open ltv pct
@@ -657,11 +630,8 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        borrow_liquidity(&mut reserve, &clock, 1);
-
-        clock::destroy_for_testing(clock);
+        borrow_liquidity(&mut reserve, 1);
         destroy_for_testing(reserve);
-
         test_scenario::end(scenario);
     }
 
@@ -672,8 +642,6 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-        clock::set_for_testing(&mut clock, 1000); 
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
@@ -690,20 +658,57 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        borrow_liquidity(&mut reserve, &clock, 400);
+        borrow_liquidity(&mut reserve, 400);
 
         assert!(reserve.available_amount == 100, 0);
         assert!(reserve.borrowed_amount == decimal::from(900), 0);
 
-        repay_liquidity(&mut reserve, &clock, 400);
+        repay_liquidity(&mut reserve, 400);
 
         assert!(reserve.available_amount == 500, 0);
         assert!(reserve.borrowed_amount == decimal::from(500), 0);
 
-        clock::destroy_for_testing(clock);
         destroy_for_testing(reserve);
 
         test_scenario::end(scenario);
+    }
+
+    #[test_only]
+    public fun create_for_testing<P>(
+        id: u64,
+        config: ReserveConfig,
+        mint_decimals: u8,
+        price: Decimal,
+        price_last_update_timestamp_s: u64,
+        available_amount: u64,
+        ctoken_supply: u64,
+        borrowed_amount: Decimal,
+        cumulative_borrow_rate: Decimal,
+        interest_last_update_timestamp_s: u64,
+    ): Reserve<P> {
+        Reserve<P> {
+            id,
+            config,
+            mint_decimals,
+            price_identifier: {
+                let v = vector::empty();
+                let i = 0;
+                while (i < 32) {
+                    vector::push_back(&mut v, i);
+                    i = i + 1;
+                };
+
+                price_identifier::from_byte_vec(v)
+            },
+            price,
+            price_last_update_timestamp_s,
+            available_amount,
+            ctoken_supply,
+            borrowed_amount,
+            cumulative_borrow_rate,
+            interest_last_update_timestamp_s,
+            fees_accumulated: decimal::from(0)
+        }
     }
 
 
