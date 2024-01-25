@@ -233,7 +233,7 @@ module suilend::lending_market {
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
         );
-        let refreshed_ticket = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
@@ -241,12 +241,7 @@ module suilend::lending_market {
         reserve::compound_interest(reserve, clock);
         reserve::borrow_liquidity<P>(reserve, amount);
 
-        obligation::borrow<P, T>(
-            refreshed_ticket, 
-            obligation, 
-            reserve, 
-            amount
-        );
+        obligation::borrow<P, T>(obligation, reserve, amount);
 
         coin::from_balance(balance::split(&mut balances.available_amount, amount), ctx)
     }
@@ -264,17 +259,12 @@ module suilend::lending_market {
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
         );
-        let refreshed_ticket = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
-        obligation::withdraw<P>(
-            refreshed_ticket, 
-            obligation, 
-            reserve, 
-            amount
-        );
+        obligation::withdraw<P>(obligation, reserve, amount);
 
         coin::from_balance(balance::split(&mut balances.deposited_ctokens, amount), ctx)
     }
@@ -293,13 +283,12 @@ module suilend::lending_market {
             obligation_id
         );
 
-        let refreshed_ticket = obligation::refresh<P>(&mut obligation, &mut lending_market.reserves, clock);
+        obligation::refresh<P>(&mut obligation, &mut lending_market.reserves, clock);
 
         let (repay_reserve, _) = get_reserve<P, Repay>(lending_market);
         let (withdraw_reserve, _) = get_reserve<P, Withdraw>(lending_market);
 
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
-            refreshed_ticket, 
             &mut obligation, 
             repay_reserve, 
             withdraw_reserve, 

@@ -77,14 +77,12 @@ module suilend::obligation {
         }
     }
 
-    struct RefreshedTicket has drop {}
-
     // update obligation's health value
     public(friend) fun refresh<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock
-    ): RefreshedTicket {
+    ) {
         let i = 0;
         let deposited_value_usd = decimal::from(0);
         let allowed_borrow_value_usd = decimal::from(0);
@@ -157,8 +155,6 @@ module suilend::obligation {
 
         obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
         obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
-
-        RefreshedTicket {}
     }
 
     public(friend) fun deposit<P>(
@@ -194,7 +190,6 @@ module suilend::obligation {
 
 
     public(friend) fun borrow<P, T>(
-        ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
         amount: u64,
@@ -215,7 +210,6 @@ module suilend::obligation {
         );
 
         assert!(is_healthy(obligation), EObligationIsUnhealthy);
-        let RefreshedTicket {} = ticket;
     }
 
     public(friend) fun repay<P>(
@@ -279,7 +273,6 @@ module suilend::obligation {
     }
 
     public(friend) fun withdraw<P>(
-        ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
         ctoken_amount: u64,
@@ -287,11 +280,9 @@ module suilend::obligation {
         withdraw_unchecked(obligation, reserve, ctoken_amount);
 
         assert!(is_healthy(obligation), EObligationIsUnhealthy);
-        let RefreshedTicket {} = ticket;
     }
 
     public(friend) fun liquidate<P>(
-        _ticket: RefreshedTicket,
         obligation: &mut Obligation<P>,
         repay_reserve: &Reserve<P>,
         withdraw_reserve: &Reserve<P>,
