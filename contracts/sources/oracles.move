@@ -7,9 +7,6 @@ module suilend::oracles {
     use suilend::decimal::{Decimal, Self, mul, div};
     use sui::math::{Self};
 
-    /* constants */
-    const PRICE_STALENESS_THRESHOLD_S: u64 = 60;
-
     public fun get_pyth_price_and_identifier(price_info_obj: &PriceInfoObject): (Decimal, PriceIdentifier) {
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
         let price_feed = price_info::get_price_feed(&price_info);

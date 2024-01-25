@@ -161,7 +161,7 @@ module suilend::obligation {
         RefreshedTicket {}
     }
 
-    public(friend) fun deposit<P, T>(
+    public(friend) fun deposit<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
         ctoken_amount: u64,
@@ -467,6 +467,54 @@ module suilend::obligation {
     #[test_only]
     use suilend::reserve_config::{ReserveConfig};
 
+    #[test_only]
+    public fun destroy_for_testing<P>(obligation: Obligation<P>) {
+        let Obligation {
+            id,
+            owner: _,
+            deposits,
+            borrows,
+            deposited_value_usd: _,
+            allowed_borrow_value_usd: _,
+            unhealthy_borrow_value_usd: _,
+            unweighted_borrowed_value_usd: _,
+            weighted_borrowed_value_usd: _,
+        } = obligation;
+
+        while (vector::length(&deposits) > 0) {
+            let deposit = vector::pop_back(&mut deposits);
+            destroy_deposit_for_testing<P>(deposit);
+        };
+        vector::destroy_empty(deposits);
+
+        while (vector::length(&borrows) > 0) {
+            let borrow = vector::pop_back(&mut borrows);
+            destroy_borrow_for_testing<P>(borrow);
+        };
+        vector::destroy_empty(borrows);
+
+        object::delete(id);
+    }
+
+    #[test_only]
+    public fun destroy_deposit_for_testing<P>(deposit: Deposit<P>) {
+        let Deposit {
+            reserve_id: _,
+            deposited_ctoken_amount: _,
+            market_value: _,
+        } = deposit;
+    }
+
+    #[test_only]
+    public fun destroy_borrow_for_testing<P>(borrow: Borrow<P>) {
+        let Borrow {
+            reserve_id: _,
+            borrowed_amount: _,
+            cumulative_borrow_rate: _,
+            market_value: _,
+        } = borrow;
+    }
+
     /* == Tests */
     #[test_only]
     struct ReserveArgs {
@@ -482,11 +530,195 @@ module suilend::obligation {
         interest_last_update_timestamp_s: u64,
     }
 
-    // fun create_reserve(reserve_args: ReserveArgs): Reserve {
-    // }
-    // #[test_only]
-    // fun setup(
-    //     reserve_names: vector<TypeName>,
-    // )
+    #[test_only]
+    struct TEST_MARKET {}
 
+    use std::debug;
+    use suilend::reserve_config::{Self};
+
+    #[test_only]
+    fun sui_reserve<P>(): Reserve<P> {
+        let config = reserve_config::create_reserve_config(
+            // open ltv
+            20,
+            // close ltv
+            50,
+            // borrow weight bps
+            20_000,
+            // deposit limit
+            1_000_000,
+            // borrow limit
+            1_000_000,
+            // liquidation bonus pct
+            10,
+            // borrow fee bps
+            0,
+            // spread_fee_bps
+            0,
+            // liquidation_fee_bps
+            0,
+            // interest rate utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 1);
+                v
+            }
+        );
+
+        reserve::create_for_testing<P>(
+            0,
+            config,
+            9,
+            decimal::from(10),
+            0,
+            0,
+            0,
+            decimal::from(0),
+            decimal::from(1),
+            0
+        )
+    }
+
+    #[test_only]
+    fun usdc_reserve<P>(): Reserve<P> {
+        let config = reserve_config::create_reserve_config(
+            // open ltv
+            50,
+            // close ltv
+            80,
+            // borrow weight bps
+            10_000,
+            // deposit limit
+            1_000_000,
+            // borrow limit
+            1_000_000,
+            // liquidation bonus pct
+            5,
+            // borrow fee bps
+            0,
+            // spread_fee_bps
+            0,
+            // liquidation_fee_bps
+            0,
+            // interest rate utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 1);
+                v
+            }
+        );
+
+        reserve::create_for_testing<P>(
+            1,
+            config,
+            6,
+            decimal::from(1),
+            0,
+            0,
+            0,
+            decimal::from(0),
+            decimal::from(1),
+            0
+        )
+    }
+
+    #[test]
+    public fun test_deposit() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let usdc_reserve = usdc_reserve();
+        let sui_reserve = sui_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+
+        assert!(vector::length(&obligation.deposits) == 2, 0);
+
+        let usdc_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(usdc_deposit.deposited_ctoken_amount == 200 * 1_000_000, 1);
+        assert!(usdc_deposit.market_value == decimal::from(200), 2);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 1);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        assert!(vector::length(&obligation.borrows) == 0, 0);
+        assert!(obligation.deposited_value_usd == decimal::from(1200), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(300), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(660), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(0), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(0), 4);
+
+
+        debug::print(&obligation);
+
+        reserve::destroy_for_testing(usdc_reserve);
+        reserve::destroy_for_testing(sui_reserve);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_withdraw() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let usdc_reserve = usdc_reserve();
+        let sui_reserve = sui_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+
+        assert!(vector::length(&obligation.deposits) == 2, 0);
+
+        let usdc_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(usdc_deposit.deposited_ctoken_amount == 200 * 1_000_000, 1);
+        assert!(usdc_deposit.market_value == decimal::from(200), 2);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 1);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        assert!(vector::length(&obligation.borrows) == 0, 0);
+        assert!(obligation.deposited_value_usd == decimal::from(1200), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(300), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(660), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(0), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(0), 4);
+
+
+        // debug::print(&obligation);
+
+        reserve::destroy_for_testing(usdc_reserve);
+        reserve::destroy_for_testing(sui_reserve);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
 }

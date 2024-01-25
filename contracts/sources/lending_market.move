@@ -211,7 +211,7 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id
         );
 
-        obligation::deposit<P, T>(
+        obligation::deposit<P>(
             obligation, 
             reserve,
             coin::value(&deposit)
