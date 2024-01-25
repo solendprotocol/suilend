@@ -9,7 +9,15 @@ module suilend::reserve {
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
     use std::vector::{Self};
-    use suilend::reserve_config::{Self, ReserveConfig, calculate_apr, deposit_limit, borrow_limit, borrow_fee};
+    use suilend::reserve_config::{
+        Self, 
+        ReserveConfig, 
+        calculate_apr, 
+        deposit_limit, 
+        borrow_limit, 
+        borrow_fee,
+        liquidation_fee
+    };
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -17,7 +25,7 @@ module suilend::reserve {
     struct CToken<phantom P, phantom T> has drop {}
 
     /* constants */
-    const PRICE_STALENESS_THRESHOLD_S: u64 = 60;
+    const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
 
     /* errors */
     const EPriceStale: u64 = 0;
@@ -271,12 +279,18 @@ module suilend::reserve {
         liquidity_amount
     }
 
-    // returns borrow amount (including fees), and the fee
     public fun calculate_borrow_fee<P>(
         reserve: &Reserve<P>,
         borrow_amount: u64
     ): u64 {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(&reserve.config)))
+    }
+
+    public fun calculate_liquidation_fee<P>(
+        reserve: &Reserve<P>,
+        withdraw_amount: u64
+    ): u64 {
+        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(&reserve.config)))
     }
 
     public(friend) fun borrow_liquidity<P>(

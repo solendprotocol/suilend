@@ -382,6 +382,11 @@ module suilend::lending_market {
             coin::value(&repay_coins)
         );
 
+        let liquidation_fee_amount = reserve::calculate_liquidation_fee<P>(
+            withdraw_reserve, 
+            withdraw_ctoken_amount
+        );
+
         object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
 
         {
@@ -394,10 +399,18 @@ module suilend::lending_market {
         };
 
         let (_, withdraw_balances) = get_reserve_mut<P, Withdraw>(lending_market);
+
         let withdraw_ctokens_balance = balance::split(
             &mut withdraw_balances.deposited_ctokens, 
             withdraw_ctoken_amount
         );
+
+        let fee_balance = balance::split(
+            &mut withdraw_ctokens_balance,
+            liquidation_fee_amount
+        );
+
+        balance::join(&mut withdraw_balances.ctoken_fees, fee_balance);
 
         event::emit(LiquidateEvent<P, Repay, Withdraw> {
             repay_amount: required_repay_amount,
