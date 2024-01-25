@@ -312,7 +312,7 @@ module suilend::lending_market {
         let borrow_fee = reserve::calculate_borrow_fee<P>(reserve, amount);
 
         reserve::borrow_liquidity<P>(reserve, amount + borrow_fee);
-        obligation::borrow<P, T>(obligation, reserve, amount + borrow_fee);
+        obligation::borrow<P>(obligation, reserve, amount + borrow_fee);
 
         event::emit(BorrowEvent<P, T> {
             liquidity_amount: amount + borrow_fee,
@@ -487,17 +487,6 @@ module suilend::lending_market {
 
         (reserve, balances)
     }
-
-    fun get_obligation_mut<P>(
-        lending_market: &mut LendingMarket<P>,
-        obligation_id: ID
-    ): &mut Obligation<P> {
-        object_bag::borrow_mut(
-            &mut lending_market.obligations, 
-            obligation_id
-        )
-    }
-
 
     #[test_only]
     public fun print_obligation<P>(
