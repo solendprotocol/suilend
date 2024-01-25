@@ -1,5 +1,6 @@
 module suilend::lending_market {
     use sui::object::{Self, ID, UID};
+    use sui::event::{Self};
     use suilend::decimal::{Self};
     use sui::object_bag::{Self, ObjectBag};
     use sui::bag::{Self, Bag};
@@ -22,6 +23,50 @@ module suilend::lending_market {
     const ENotAOneTimeWitness: u64 = 0;
     const EObligationNotHealthy: u64 = 1;
     const EIncorrectVersion: u64 = 2;
+
+    /* Events */
+    struct MintEvent<phantom P, phantom T> has drop, copy {
+        in_liquidity_amount: u64,
+        out_ctoken_amount: u64,
+        caller: address
+    }
+
+    struct RedeemEvent<phantom P, phantom T> has drop, copy {
+        in_ctoken_amount: u64,
+        out_liquidity_amount: u64,
+        caller: address
+    }
+
+    struct DepositEvent<phantom P, phantom T> has drop, copy {
+        ctoken_amount: u64,
+        obligation_id: ID,
+        caller: address
+    }
+
+    struct WithdrawEvent<phantom P, phantom T> has drop, copy {
+        ctoken_amount: u64,
+        obligation_id: ID,
+        caller: address
+    }
+
+    struct BorrowEvent<phantom P, phantom T> has drop, copy {
+        liquidity_amount: u64,
+        obligation_id: ID,
+        caller: address
+    }
+
+    struct RepayEvent<phantom P, phantom T> has drop, copy {
+        liquidity_amount: u64,
+        obligation_id: ID,
+        caller: address
+    }
+
+    struct LiquidateEvent<phantom P, phantom RepayType, phantom WithdrawType> has drop, copy {
+        repay_amount: u64,
+        withdraw_amount: u64,
+        obligation_id: ID,
+        caller: address,
+    }
 
     struct LendingMarket<phantom P> has key {
         id: UID,
@@ -49,7 +94,9 @@ module suilend::lending_market {
         reserve_id: u64,
         available_amount: Balance<T>,
         ctoken_supply: Supply<CToken<P, T>>,
-        deposited_ctokens: Balance<CToken<P, T>>
+        deposited_ctokens: Balance<CToken<P, T>>,
+        fees: Balance<T>,
+        ctoken_fees: Balance<CToken<P, T>>,
     }
 
     // used to store Balance objects in the Bag
@@ -102,7 +149,9 @@ module suilend::lending_market {
                 reserve_id,
                 available_amount: balance::zero(),
                 ctoken_supply,
-                deposited_ctokens: balance::zero()
+                deposited_ctokens: balance::zero(),
+                fees: balance::zero(),
+                ctoken_fees: balance::zero(),
             }
         );
     }
@@ -168,6 +217,12 @@ module suilend::lending_market {
             coin::value(&deposit)
         );
 
+        event::emit(MintEvent<P, T> {
+            in_liquidity_amount: coin::value(&deposit),
+            out_ctoken_amount: ctoken_amount,
+            caller: tx_context::sender(ctx)
+        });
+
         let ctoken_balance = balance::increase_supply(&mut balances.ctoken_supply, ctoken_amount);
 
         balance::join(&mut balances.available_amount, coin::into_balance(deposit));
@@ -191,6 +246,12 @@ module suilend::lending_market {
             coin::value(&ctokens)
         );
 
+        event::emit(RedeemEvent<P, T> {
+            in_ctoken_amount: coin::value(&ctokens),
+            out_liquidity_amount: liquidity_amount,
+            caller: tx_context::sender(ctx)
+        });
+
         balance::decrease_supply(&mut balances.ctoken_supply, coin::into_balance(ctokens));
         coin::from_balance(balance::split(&mut balances.available_amount, liquidity_amount), ctx)
     }
@@ -200,7 +261,7 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>, 
         obligation_owner_cap: &ObligationOwnerCap<P>,
         deposit: Coin<CToken<P, T>>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -217,7 +278,14 @@ module suilend::lending_market {
             coin::value(&deposit)
         );
 
+        event::emit(DepositEvent<P, T> {
+            ctoken_amount: coin::value(&deposit),
+            obligation_id: obligation_owner_cap.obligation_id,
+            caller: tx_context::sender(ctx)
+        });
+
         balance::join(&mut balances.deposited_ctokens, coin::into_balance(deposit));
+
     }
 
     public fun borrow<P, T>(
@@ -239,11 +307,24 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
         reserve::compound_interest(reserve, clock);
-        reserve::borrow_liquidity<P>(reserve, amount);
+        reserve::assert_price_is_fresh(reserve, clock);
 
-        obligation::borrow<P, T>(obligation, reserve, amount);
+        let borrow_fee = reserve::calculate_borrow_fee<P>(reserve, amount);
 
-        coin::from_balance(balance::split(&mut balances.available_amount, amount), ctx)
+        reserve::borrow_liquidity<P>(reserve, amount + borrow_fee);
+        obligation::borrow<P, T>(obligation, reserve, amount + borrow_fee);
+
+        event::emit(BorrowEvent<P, T> {
+            liquidity_amount: amount + borrow_fee,
+            obligation_id: obligation_owner_cap.obligation_id,
+            caller: tx_context::sender(ctx)
+        });
+
+        let fee_balance = balance::split(&mut balances.available_amount, borrow_fee);
+        balance::join(&mut balances.fees, fee_balance);
+
+        let receive_balance = balance::split(&mut balances.available_amount, amount);
+        coin::from_balance(receive_balance, ctx)
     }
 
     public fun withdraw_ctokens<P, T>(
@@ -265,6 +346,12 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
         obligation::withdraw<P>(obligation, reserve, amount);
+
+        event::emit(WithdrawEvent<P, T> {
+            ctoken_amount: amount,
+            obligation_id: obligation_owner_cap.obligation_id,
+            caller: tx_context::sender(ctx)
+        });
 
         coin::from_balance(balance::split(&mut balances.deposited_ctokens, amount), ctx)
     }
@@ -312,6 +399,13 @@ module suilend::lending_market {
             withdraw_ctoken_amount
         );
 
+        event::emit(LiquidateEvent<P, Repay, Withdraw> {
+            repay_amount: required_repay_amount,
+            withdraw_amount: withdraw_ctoken_amount,
+            obligation_id,
+            caller: tx_context::sender(ctx)
+        });
+
         (repay_coins, coin::from_balance(withdraw_ctokens_balance, ctx))
     }
 
@@ -320,7 +414,7 @@ module suilend::lending_market {
         obligation_id: ID,
         clock: &Clock,
         repay_coins: Coin<T>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -339,6 +433,12 @@ module suilend::lending_market {
             reserve, 
             decimal::from(coin::value(&repay_coins))
         );
+
+        event::emit(RepayEvent<P, T> {
+            liquidity_amount: coin::value(&repay_coins),
+            obligation_id,
+            caller: tx_context::sender(ctx)
+        });
 
         balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));
     }

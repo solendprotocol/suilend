@@ -1,14 +1,15 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
+    use sui::event::{Self};
     use suilend::oracles::{Self};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
     use std::vector::{Self};
-    use suilend::reserve_config::{Self, ReserveConfig, calculate_apr, deposit_limit, borrow_limit};
+    use suilend::reserve_config::{Self, ReserveConfig, calculate_apr, deposit_limit, borrow_limit, borrow_fee};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -23,6 +24,16 @@ module suilend::reserve {
     const EPriceIdentifierMismatch: u64 = 1;
     const EDepositLimitExceeded: u64 = 2;
     const EBorrowLimitExceeded: u64 = 3;
+
+    /* events */
+    struct InterestUpdateEvent<phantom P> has drop, copy {
+        reserve_id: u64,
+        cumulative_borrow_rate: Decimal,
+        available_amount: u64,
+        borrowed_amount: Decimal,
+        ctoken_supply: u64,
+        timestamp_s: u64
+    }
 
     struct Reserve<phantom P> has store {
         id: u64,
@@ -210,6 +221,15 @@ module suilend::reserve {
         );
 
         reserve.interest_last_update_timestamp_s = cur_time_s;
+
+        event::emit(InterestUpdateEvent<P> {
+            reserve_id: reserve.id,
+            cumulative_borrow_rate: reserve.cumulative_borrow_rate,
+            available_amount: reserve.available_amount,
+            borrowed_amount: reserve.borrowed_amount,
+            ctoken_supply: reserve.ctoken_supply,
+            timestamp_s: cur_time_s
+        });
     }
 
     public(friend) fun deposit_liquidity_and_mint_ctokens<P>(
@@ -249,6 +269,14 @@ module suilend::reserve {
         reserve.ctoken_supply = reserve.ctoken_supply - ctoken_amount;
 
         liquidity_amount
+    }
+
+    // returns borrow amount (including fees), and the fee
+    public fun calculate_borrow_fee<P>(
+        reserve: &Reserve<P>,
+        borrow_amount: u64
+    ): u64 {
+        ceil(mul(decimal::from(borrow_amount), borrow_fee(&reserve.config)))
     }
 
     public(friend) fun borrow_liquidity<P>(
