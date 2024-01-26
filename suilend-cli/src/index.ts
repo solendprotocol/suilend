@@ -28,14 +28,12 @@ async function main() {
   );
   let suilendClient = await SuilendClient.initialize(lendingMarketId, client);
 
-  // Obligation.fetch()
-
   const keypair = Ed25519Keypair.fromSecretKey(
     fromB64(process.env.SUI_SECRET_KEY!)
   );
   const signer = new RawSigner(keypair, client);
 
-  await suilendClient.setObligationOwnerCap("0x99d458e0a85d348f762dbeae771652371571252a6a25b2345a9e16fb2769e4af");
+  // await suilendClient.setObligationOwnerCap("0x99d458e0a85d348f762dbeae771652371571252a6a25b2345a9e16fb2769e4af");
 
   // console.log(JSON.stringify(
   //   suilendClient.lendingMarket,
@@ -46,29 +44,29 @@ async function main() {
 
   let txb = new TransactionBlock();
 
-  let obligationData = await client.getObject({
-    id: "0xf6add6b93510077ace37a90328a39274e7b7a7a3b539e12547d2f1bde4557b51",
-    options: { showBcs: true },
-  });
+  // let obligationData = await client.getObject({
+  //   id: "0xf6add6b93510077ace37a90328a39274e7b7a7a3b539e12547d2f1bde4557b51",
+  //   options: { showBcs: true },
+  // });
 
-  if (obligationData.data?.bcs?.dataType !== "moveObject") {
-    throw new Error("Error: invalid data type");
-  }
+  // if (obligationData.data?.bcs?.dataType !== "moveObject") {
+  //   throw new Error("Error: invalid data type");
+  // }
 
-  let obligation = Obligation.fromBcs(
-    suilendClient.lendingMarket.$typeArg,
-    fromB64(obligationData.data.bcs.bcsBytes)
-  );
+  // let obligation = Obligation.fromBcs(
+  //   suilendClient.lendingMarket.$typeArg,
+  //   fromB64(obligationData.data.bcs.bcsBytes)
+  // );
 
-  let [repay_coins, withdraw_coins] = await suilendClient.liquidate(
-    txb,
-    obligation,
-    "0x2::sui::SUI",
-    "0x2::sui::SUI",
-    "0x1bfb480c2a25b6bcc2edd7d9739b842a8d66d361fb01f7f6c1f20df81f0bbbc0"
-  );
+  // let [repay_coins, withdraw_coins] = await suilendClient.liquidate(
+  //   txb,
+  //   obligation,
+  //   "0x2::sui::SUI",
+  //   "0x2::sui::SUI",
+  //   "0x1bfb480c2a25b6bcc2edd7d9739b842a8d66d361fb01f7f6c1f20df81f0bbbc0"
+  // );
 
-  txb.transferObjects([repay_coins, withdraw_coins], txb.object(MY_ADDRESS));
+  // txb.transferObjects([repay_coins, withdraw_coins], txb.object(MY_ADDRESS));
 
   // await suilendClient.updateReserveConfig(
   //   MY_ADDRESS,
@@ -107,8 +105,8 @@ async function main() {
   //   "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744"
   // );
 
-  // const [obligationOwnerCap] = suilendClient.createObligation(txb);
-  // txb.transferObjects([obligationOwnerCap], txb.pure(MY_ADDRESS));
+  const [obligationOwnerCap] = suilendClient.createObligation(txb);
+  txb.transferObjects([obligationOwnerCap], txb.pure(MY_ADDRESS));
 
   // suilendClient.deposit(
   //   "0x71407245f9d8dd1373320456f0f079cd53342e342d1121cd442e8da004793871",
@@ -139,12 +137,6 @@ async function main() {
 
   const res = await signer.signAndExecuteTransactionBlock({
     transactionBlock: txb,
-    options: {
-      showBalanceChanges: true,
-      showEffects: true,
-      showInput: true,
-      showObjectChanges: true,
-    },
   });
   console.log(res);
 
