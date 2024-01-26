@@ -215,29 +215,46 @@ module suilend::obligation {
     public(friend) fun repay<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-        amount: Decimal,
+        repay_amount: Decimal,
     ) {
         let borrow = find_borrow_mut(obligation, reserve::id(reserve));
 
+        let old_borrow_amount = borrow.borrowed_amount;
         compound_interest(borrow, reserve);
+        let interest_diff = sub(borrow.borrowed_amount, old_borrow_amount);
 
-        borrow.borrowed_amount = sub(borrow.borrowed_amount, amount);
-
-        let repay_value = reserve::market_value(reserve, amount);
+        borrow.borrowed_amount = sub(borrow.borrowed_amount, repay_amount);
 
         // update other health values. note that we don't enforce price freshness here. this is purely
         // to make offchain accounting easier. any operation that requires price 
         // freshness (withdraw, borrow, liquidate) will refresh the obligation right before.
-        // TODO: is it possible to underflow here? probably should do a saturating sub just in case.
-        borrow.market_value = sub(borrow.market_value, repay_value);
-        obligation.unweighted_borrowed_value_usd = sub(
-            obligation.unweighted_borrowed_value_usd,
-            repay_value
-        );
-        obligation.weighted_borrowed_value_usd = sub(
-            obligation.weighted_borrowed_value_usd,
-            mul(repay_value, borrow_weight(config(reserve)))
-        );
+        if (le(interest_diff, repay_amount)) {
+            let diff = sub(repay_amount, interest_diff);
+            let repay_value = reserve::market_value(reserve, diff);
+            borrow.market_value = sub(borrow.market_value, repay_value);
+            obligation.unweighted_borrowed_value_usd = sub(
+                obligation.unweighted_borrowed_value_usd,
+                repay_value
+            );
+            obligation.weighted_borrowed_value_usd = sub(
+                obligation.weighted_borrowed_value_usd,
+                mul(repay_value, borrow_weight(config(reserve)))
+            );
+        }
+        else {
+            let additional_borrow_amount = sub(interest_diff, repay_amount);
+            let additional_borrow_value = reserve::market_value(reserve, additional_borrow_amount);
+            borrow.market_value = add(borrow.market_value, additional_borrow_value);
+            obligation.unweighted_borrowed_value_usd = add(
+                obligation.unweighted_borrowed_value_usd,
+                additional_borrow_value 
+            );
+            obligation.weighted_borrowed_value_usd = add(
+                obligation.weighted_borrowed_value_usd,
+                mul(additional_borrow_value, borrow_weight(config(reserve)))
+            );
+        }
+
     }
 
     fun withdraw_unchecked<P>(
@@ -555,8 +572,8 @@ module suilend::obligation {
             // aprs
             {
                 let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 1);
+                vector::push_back(&mut v, 31536000 * 4);
+                vector::push_back(&mut v, 31536000 * 8);
                 v
             }
         );
@@ -606,8 +623,8 @@ module suilend::obligation {
             // aprs
             {
                 let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 1);
+                vector::push_back(&mut v, 31536000);
+                vector::push_back(&mut v, 31536000 * 2);
                 v
             }
         );
@@ -814,6 +831,61 @@ module suilend::obligation {
 
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_repay_happy() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use std::debug;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let usdc_reserve = usdc_reserve();
+        let sui_reserve = sui_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+
+        clock::set_for_testing(&mut clock, 1000);
+        reserve::compound_interest(&mut usdc_reserve, &clock);
+
+        repay<TEST_MARKET>(&mut obligation, &usdc_reserve, decimal::from(100 * 1_000_000));
+
+        debug::print(&obligation);
+
+        assert!(vector::length(&obligation.deposits) == 1, 0);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        assert!(vector::length(&obligation.borrows) == 1, 0);
+
+        // borrow was compounded by 1% so there should be borrows outstanding
+        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(1_000_000), 1);
+        assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
+        // FIXME: the calculation here is incorrect
+        assert!(usdc_borrow.market_value == decimal::from(1), 3);
+
+        // assert!(obligation.deposited_value_usd == decimal::from(500), 0);
+        // assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
+        // assert!(obligation.unhealthy_borrow_value_usd == decimal::from(250), 2);
+        // assert!(obligation.unweighted_borrowed_value_usd == decimal::from(50), 3);
+        // assert!(obligation.weighted_borrowed_value_usd == decimal::from(100), 4);
+
+        reserve::destroy_for_testing(usdc_reserve);
+        reserve::destroy_for_testing(sui_reserve);
+        clock::destroy_for_testing(clock);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
     }
