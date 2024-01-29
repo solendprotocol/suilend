@@ -353,6 +353,16 @@ module suilend::reserve {
     }
 
     #[test_only]
+    public fun update_price_for_testing<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        price_decimal: Decimal
+    ) {
+        reserve.price = price_decimal;
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
+    }
+
+    #[test_only]
     use pyth::price_identifier::{Self};
 
     #[test_only]
@@ -736,7 +746,7 @@ module suilend::reserve {
                 let v = vector::empty();
                 let i = 0;
                 while (i < 32) {
-                    vector::push_back(&mut v, i);
+                    vector::push_back(&mut v, 0);
                     i = i + 1;
                 };
 

@@ -23,6 +23,7 @@ module suilend::lending_market {
     const ENotAOneTimeWitness: u64 = 0;
     const EObligationNotHealthy: u64 = 1;
     const EIncorrectVersion: u64 = 2;
+    const ETooSmall: u64 = 3;
 
     /* Events */
     struct MintEvent<phantom P, phantom T> has drop, copy {
@@ -208,6 +209,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<CToken<P, T>> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(coin::value(&deposit) > 0, ETooSmall);
 
         let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
 
@@ -216,6 +218,8 @@ module suilend::lending_market {
             reserve, 
             coin::value(&deposit)
         );
+
+        assert!(ctoken_amount > 0, ETooSmall);
 
         event::emit(MintEvent<P, T> {
             in_liquidity_amount: coin::value(&deposit),
@@ -237,6 +241,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<T> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(coin::value(&ctokens) > 0, ETooSmall);
 
         let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
 
@@ -245,6 +250,8 @@ module suilend::lending_market {
             reserve, 
             coin::value(&ctokens)
         );
+
+        assert!(liquidity_amount > 0, ETooSmall);
 
         event::emit(RedeemEvent<P, T> {
             in_ctoken_amount: coin::value(&ctokens),
@@ -264,6 +271,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(coin::value(&deposit) > 0, ETooSmall);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow(&lending_market.reserves, balances.reserve_id);
@@ -296,6 +304,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<T> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(amount > 0, ETooSmall);
 
         let obligation = object_bag::borrow_mut(
             &mut lending_market.obligations, 
@@ -335,6 +344,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<CToken<P, T>> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(amount > 0, ETooSmall);
 
         let obligation = object_bag::borrow_mut(
             &mut lending_market.obligations, 
@@ -364,6 +374,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): (Coin<Repay>, Coin<CToken<P, Withdraw>>) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(coin::value(&repay_coins) > 0, ETooSmall);
 
         let obligation: Obligation<P> = object_bag::remove(
             &mut lending_market.obligations, 
@@ -381,6 +392,9 @@ module suilend::lending_market {
             withdraw_reserve, 
             coin::value(&repay_coins)
         );
+
+        assert!(withdraw_ctoken_amount > 0, ETooSmall);
+        assert!(required_repay_amount > 0, ETooSmall);
 
         let liquidation_fee_amount = reserve::calculate_liquidation_fee<P>(
             withdraw_reserve, 

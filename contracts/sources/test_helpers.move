@@ -245,6 +245,8 @@ module suilend::test_helpers {
         clock: &Clock,
         repay: Coin<Repay>
     ): (Coin<Repay>, Coin<Withdraw>) {
+        use std::debug::{Self};
+
         test_scenario::next_tx(scenario, liquidator);
 
         let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
@@ -255,6 +257,8 @@ module suilend::test_helpers {
             repay,
             test_scenario::ctx(scenario)
         );
+
+        debug::print(&withdraw_ctokens);
 
         let withdraw_coins = lending_market::redeem_ctokens_and_withdraw_liquidity<P, Withdraw>(
             &mut lending_market,

@@ -436,7 +436,7 @@ module suilend::test_lm {
             10,
             5,
             2000,
-            10_000,
+            3000,
             utils(),
             aprs(),
         );

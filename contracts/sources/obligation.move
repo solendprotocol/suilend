@@ -643,6 +643,57 @@ module suilend::obligation {
         )
     }
 
+    #[test_only]
+    fun eth_reserve<P>(): Reserve<P> {
+        let config = reserve_config::create_reserve_config(
+            // open ltv
+            10,
+            // close ltv
+            20,
+            // borrow weight bps
+            30_000,
+            // deposit limit
+            1_000_000,
+            // borrow limit
+            1_000_000,
+            // liquidation bonus pct
+            5,
+            // borrow fee bps
+            0,
+            // spread_fee_bps
+            0,
+            // liquidation_fee_bps
+            0,
+            // interest rate utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 31536000 * 10);
+                vector::push_back(&mut v, 31536000 * 20);
+                v
+            }
+        );
+        reserve::create_for_testing<P>(
+            2,
+            config,
+            9,
+            decimal::from(2000),
+            0,
+            0,
+            0,
+            decimal::from(0),
+            decimal::from(3),
+            0
+        )
+    }
+
+
     #[test]
     public fun test_deposit() {
         use sui::test_scenario::{Self};
@@ -874,14 +925,13 @@ module suilend::obligation {
         let usdc_borrow = vector::borrow(&obligation.borrows, 0);
         assert!(usdc_borrow.borrowed_amount == decimal::from(1_000_000), 1);
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
-        // FIXME: the calculation here is incorrect
         assert!(usdc_borrow.market_value == decimal::from(1), 3);
 
-        // assert!(obligation.deposited_value_usd == decimal::from(500), 0);
-        // assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
-        // assert!(obligation.unhealthy_borrow_value_usd == decimal::from(250), 2);
-        // assert!(obligation.unweighted_borrowed_value_usd == decimal::from(50), 3);
-        // assert!(obligation.weighted_borrowed_value_usd == decimal::from(100), 4);
+        assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(500), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(1), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(2), 4);
 
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
@@ -889,4 +939,312 @@ module suilend::obligation {
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    public fun test_repay_happy_2() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let usdc_reserve = usdc_reserve();
+        let sui_reserve = sui_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+
+        clock::set_for_testing(&mut clock, 1000);
+        reserve::compound_interest(&mut usdc_reserve, &clock);
+
+        repay<TEST_MARKET>(&mut obligation, &usdc_reserve, decimal::from(500_000));
+
+        assert!(vector::length(&obligation.deposits) == 1, 0);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        assert!(vector::length(&obligation.borrows) == 1, 0);
+
+        // borrow was compounded by 1% so there should be borrows outstanding
+        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(101 * 1_000_000 - 500_000), 1);
+        assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
+        assert!(usdc_borrow.market_value == decimal::from_percent_u64(10_050), 3);
+
+        assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(500), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent_u64(10_050), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from_percent_u64(20_100), 4);
+
+        reserve::destroy_for_testing(usdc_reserve);
+        reserve::destroy_for_testing(sui_reserve);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 0, location = reserve)] // price stale
+    public fun test_refresh_fail_deposit_price_stale() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use std::debug;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let sui_reserve = sui_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000);
+
+        clock::set_for_testing(&mut clock, 1000); 
+        let reserves = {
+            let v = vector::empty();
+            vector::push_back(&mut v, sui_reserve);
+            v
+        };
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+        debug::print(&obligation);
+
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        vector::destroy_empty(reserves);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 0, location = reserve)] // price stale
+    public fun test_refresh_fail_borrow_price_stale() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let sui_reserve = sui_reserve();
+        let usdc_reserve = usdc_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+        clock::set_for_testing(&mut clock, 1000); 
+        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10));
+
+        let reserves = {
+            let v = vector::empty();
+            vector::push_back(&mut v, sui_reserve);
+            vector::push_back(&mut v, usdc_reserve);
+            v
+        };
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        vector::destroy_empty(reserves);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_refresh_happy() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let sui_reserve = sui_reserve();
+        let usdc_reserve = usdc_reserve();
+        // let eth_reserve = eth_reserve();
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+        clock::set_for_testing(&mut clock, 1000); 
+        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10));
+        reserve::update_price_for_testing(&mut usdc_reserve, &clock, decimal::from(1));
+
+        let reserves = {
+            let v = vector::empty();
+            vector::push_back(&mut v, sui_reserve);
+            vector::push_back(&mut v, usdc_reserve);
+            v
+        };
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+
+        assert!(vector::length(&obligation.deposits) == 2, 0);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        let usdc_deposit = vector::borrow(&obligation.deposits, 1);
+        assert!(usdc_deposit.deposited_ctoken_amount == 100 * 1_000_000, 3);
+        assert!(usdc_deposit.market_value == decimal::from(100), 4);
+
+        assert!(vector::length(&obligation.borrows) == 1, 0);
+
+        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(101 * 1_000_000), 1);
+        assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
+        assert!(usdc_borrow.market_value == decimal::from(101), 3);
+
+        assert!(obligation.deposited_value_usd == decimal::from(1100), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(250), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(580), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(101), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(202), 4);
+
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        vector::destroy_empty(reserves);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EObligationIsHealthy)]
+    public fun test_liquidate_fail_healthy() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let sui_reserve = sui_reserve();
+        let usdc_reserve = usdc_reserve();
+        // let eth_reserve = eth_reserve();
+
+        // TODO many cases to test here:
+        // 1. deposit smaller than repay value
+        // 2. partial repay 
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+        let reserves = {
+            let v = vector::empty();
+            vector::push_back(&mut v, sui_reserve);
+            vector::push_back(&mut v, usdc_reserve);
+            v
+        };
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+        liquidate<TEST_MARKET>(
+            &mut obligation,
+            vector::borrow(&reserves, 1),
+            vector::borrow(&reserves, 0),
+            100 * 1_000_000_000
+        );
+
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        vector::destroy_empty(reserves);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_liquidate_happy() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let sui_reserve = sui_reserve();
+        let usdc_reserve = usdc_reserve();
+        // let eth_reserve = eth_reserve();
+
+        // TODO many cases to test here:
+        // 1. deposit smaller than repay value
+        // 2. partial repay 
+
+        let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+
+        let builder = reserve_config::from(reserve::config(&sui_reserve));
+        reserve_config::set_open_ltv_pct(&mut builder, 0);
+        reserve_config::set_close_ltv_pct(&mut builder, 0);
+        let config = reserve_config::build(builder);
+        reserve::update_reserve_config(&mut sui_reserve, config);
+
+        let reserves = {
+            let v = vector::empty();
+            vector::push_back(&mut v, sui_reserve);
+            vector::push_back(&mut v, usdc_reserve);
+            v
+        };
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+        liquidate<TEST_MARKET>(
+            &mut obligation,
+            vector::borrow(&reserves, 1),
+            vector::borrow(&reserves, 0),
+            100 * 1_000_000_000
+        );
+
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        reserve::destroy_for_testing(vector::pop_back(&mut reserves));
+        vector::destroy_empty(reserves);
+        clock::destroy_for_testing(clock);
+        destroy_for_testing(obligation);
+        test_scenario::end(scenario);
+    }
+
 }

@@ -43,6 +43,13 @@ async function main() {
   // console.log(suilendClient.lendingMarket);
 
   let txb = new TransactionBlock();
+  let coin = txb.splitCoins(
+    txb.object(
+      "0x3882eb0e69a15e3c3a77e943bf2c741bf4708c1a97b760e8ec17fc3c60ab8505"
+    ),
+    [txb.pure(1_000)]
+  );
+  txb.transferObjects([coin], txb.object(MY_ADDRESS));
 
   // let obligationData = await client.getObject({
   //   id: "0xf6add6b93510077ace37a90328a39274e7b7a7a3b539e12547d2f1bde4557b51",
@@ -105,8 +112,8 @@ async function main() {
   //   "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744"
   // );
 
-  const [obligationOwnerCap] = suilendClient.createObligation(txb);
-  txb.transferObjects([obligationOwnerCap], txb.pure(MY_ADDRESS));
+  // const [obligationOwnerCap] = suilendClient.createObligation(txb);
+  // txb.transferObjects([obligationOwnerCap], txb.pure(MY_ADDRESS));
 
   // suilendClient.deposit(
   //   "0x71407245f9d8dd1373320456f0f079cd53342e342d1121cd442e8da004793871",
@@ -135,6 +142,11 @@ async function main() {
   //   txb
   // );
 
+  // let resp = await client.getObject({
+  //   id: "0x3882eb0e69a15e3c3a77e943bf2c741bf4708c1a97b760e8ec17fc3c60ab8505",
+  //   options: { showContent: true },
+  // });
+  // txb.setGasPayment([resp.data!]);
   const res = await signer.signAndExecuteTransactionBlock({
     transactionBlock: txb,
   });
