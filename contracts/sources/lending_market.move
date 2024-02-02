@@ -2,7 +2,7 @@ module suilend::lending_market {
     use sui::object::{Self, ID, UID};
     use sui::event::{Self};
     use suilend::decimal::{Self};
-    use sui::object_bag::{Self, ObjectBag};
+    use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Clock};
     use sui::types;
@@ -74,7 +74,7 @@ module suilend::lending_market {
         version: u64,
 
         reserves: vector<Reserve<P>>,
-        obligations: ObjectBag,
+        obligations: ObjectTable<ID, Obligation<P>>,
         balances: Bag,
     }
 
@@ -113,7 +113,7 @@ module suilend::lending_market {
             id: object::new(ctx),
             version: CURRENT_VERSION,
             reserves: vector::empty(),
-            obligations: object_bag::new(ctx),
+            obligations: object_table::new(ctx),
             balances: bag::new(ctx),
         };
         
@@ -197,7 +197,7 @@ module suilend::lending_market {
             obligation_id: object::id(&obligation) 
         };
 
-        object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
+        object_table::add(&mut lending_market.obligations, object::id(&obligation), obligation);
 
         cap
     }
@@ -275,7 +275,7 @@ module suilend::lending_market {
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = vector::borrow(&lending_market.reserves, balances.reserve_id);
-        let obligation = object_bag::borrow_mut(
+        let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
         );
@@ -306,7 +306,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(amount > 0, ETooSmall);
 
-        let obligation = object_bag::borrow_mut(
+        let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
         );
@@ -346,7 +346,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(amount > 0, ETooSmall);
 
-        let obligation = object_bag::borrow_mut(
+        let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
         );
@@ -376,7 +376,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&repay_coins) > 0, ETooSmall);
 
-        let obligation: Obligation<P> = object_bag::remove(
+        let obligation: Obligation<P> = object_table::remove(
             &mut lending_market.obligations, 
             obligation_id
         );
@@ -401,7 +401,7 @@ module suilend::lending_market {
             withdraw_ctoken_amount
         );
 
-        object_bag::add(&mut lending_market.obligations, object::id(&obligation), obligation);
+        object_table::add(&mut lending_market.obligations, object::id(&obligation), obligation);
 
         {
             let (repay_reserve, repay_balances) = get_reserve_mut<P, Repay>(lending_market);
@@ -445,7 +445,7 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let obligation = object_bag::borrow_mut(
+        let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_id
         );
@@ -507,7 +507,7 @@ module suilend::lending_market {
         lending_market: &LendingMarket<P>,
         obligation_id: ID
     ) {
-        let obligation: &Obligation<P> = object_bag::borrow(
+        let obligation: &Obligation<P> = object_table::borrow(
             &lending_market.obligations, 
             obligation_id
         );
