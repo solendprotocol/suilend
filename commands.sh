@@ -17,6 +17,6 @@ curl --location --request POST 'https://fullnode.mainnet.sui.io:443' \
   "id": 1,
   "method": "suix_getOwnedObjects",
   "params": [
-    "0x4f3446baf9ca583b920e81924b94883b64addc2a2671963b546aaef77f79a28b"
+    "0xa56786f3384c6f85a14f2d6d5cf4875b3a3c170a619b6d734e67c4611aa403b8"
   ]
 }'

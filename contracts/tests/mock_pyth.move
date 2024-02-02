@@ -51,13 +51,13 @@ module suilend::mock_pyth {
                     price_identifier::from_byte_vec(v),
                     price::new(
                         i64::new(0, false),
-                        1,
+                        0,
                         i64::new(0, false),
                         0
                     ),
                     price::new(
                         i64::new(0, false),
-                        1,
+                        0,
                         i64::new(0, false),
                         0
                     )

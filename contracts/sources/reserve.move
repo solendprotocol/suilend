@@ -1,5 +1,6 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
+    use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil};
@@ -32,6 +33,7 @@ module suilend::reserve {
     const EPriceIdentifierMismatch: u64 = 1;
     const EDepositLimitExceeded: u64 = 2;
     const EBorrowLimitExceeded: u64 = 3;
+    const EInvalidPrice: u64 = 4;
 
     /* events */
     struct InterestUpdateEvent<phantom P> has drop, copy {
@@ -73,7 +75,8 @@ module suilend::reserve {
         reserve_id: u64,
     ): (Reserve<P>, Supply<CToken<P, T>>) {
 
-        let (price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj);
+        let (price_decimal, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
 
         (
             Reserve {
@@ -81,7 +84,7 @@ module suilend::reserve {
                 config,
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
-                price: price_decimal,
+                price: option::extract(&mut price_decimal),
                 price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
                 available_amount: 0,
                 ctoken_supply: 0,
@@ -98,6 +101,7 @@ module suilend::reserve {
         reserve.id
     }
 
+    // make sure we are using the latest published price on sui
     public fun assert_price_is_fresh<P>(reserve: &Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         assert!(
@@ -190,10 +194,11 @@ module suilend::reserve {
         clock: &Clock,
         price_info_obj: &PriceInfoObject
     ) {
-        let (price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj);
+        let (price_decimal, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
 
-        reserve.price = price_decimal;
+        reserve.price = option::extract(&mut price_decimal);
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
