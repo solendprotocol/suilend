@@ -1,6 +1,7 @@
 module suilend::obligation {
     use sui::object::{Self, UID};
     use std::vector::{Self};
+    use sui::test_scenario::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus};
@@ -543,6 +544,8 @@ module suilend::obligation {
 
     #[test_only]
     fun sui_reserve<P>(): Reserve<P> {
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
         let config = reserve_config::create_reserve_config(
             // open ltv
             20,
@@ -575,10 +578,11 @@ module suilend::obligation {
                 vector::push_back(&mut v, 31536000 * 4);
                 vector::push_back(&mut v, 31536000 * 8);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
 
-        reserve::create_for_testing<P>(
+        let reserve = reserve::create_for_testing<P>(
             0,
             config,
             9,
@@ -589,11 +593,18 @@ module suilend::obligation {
             decimal::from(0),
             decimal::from(3),
             0
-        )
+        );
+
+        test_scenario::end(scenario);
+
+        reserve
     }
 
     #[test_only]
     fun usdc_reserve<P>(): Reserve<P> {
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
         let config = reserve_config::create_reserve_config(
             // open ltv
             50,
@@ -626,10 +637,11 @@ module suilend::obligation {
                 vector::push_back(&mut v, 31536000);
                 vector::push_back(&mut v, 31536000 * 2);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
 
-        reserve::create_for_testing<P>(
+        let reserve = reserve::create_for_testing<P>(
             1,
             config,
             6,
@@ -640,11 +652,18 @@ module suilend::obligation {
             decimal::from(0),
             decimal::from(2),
             0
-        )
+        );
+
+        test_scenario::end(scenario);
+
+        reserve
     }
 
     #[test_only]
     fun eth_reserve<P>(): Reserve<P> {
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
         let config = reserve_config::create_reserve_config(
             // open ltv
             10,
@@ -677,9 +696,11 @@ module suilend::obligation {
                 vector::push_back(&mut v, 31536000 * 10);
                 vector::push_back(&mut v, 31536000 * 20);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
-        reserve::create_for_testing<P>(
+
+        let reserve = reserve::create_for_testing<P>(
             2,
             config,
             9,
@@ -690,7 +711,11 @@ module suilend::obligation {
             decimal::from(0),
             decimal::from(3),
             0
-        )
+        );
+
+        test_scenario::end(scenario);
+
+        reserve
     }
 
 
@@ -1217,7 +1242,7 @@ module suilend::obligation {
         let builder = reserve_config::from(reserve::config(&sui_reserve));
         reserve_config::set_open_ltv_pct(&mut builder, 0);
         reserve_config::set_close_ltv_pct(&mut builder, 0);
-        let config = reserve_config::build(builder);
+        let config = reserve_config::build(builder, test_scenario::ctx(&mut scenario));
         reserve::update_reserve_config(&mut sui_reserve, config);
 
         let reserves = {

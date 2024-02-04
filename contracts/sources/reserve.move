@@ -1,5 +1,7 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
+    use suilend::cell::{Self, Cell};
+    use sui::test_scenario::{Self};
     use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
@@ -48,7 +50,7 @@ module suilend::reserve {
     struct Reserve<phantom P> has store {
         id: u64,
 
-        config: ReserveConfig,
+        config: Cell<ReserveConfig>,
         mint_decimals: u8,
 
         // oracles
@@ -81,7 +83,7 @@ module suilend::reserve {
         (
             Reserve {
                 id: reserve_id,
-                config,
+                config: cell::new(config),
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
                 price: option::extract(&mut price_decimal),
@@ -179,14 +181,15 @@ module suilend::reserve {
     }
 
     public fun config<P>(reserve: &Reserve<P>): &ReserveConfig {
-        &reserve.config
+        cell::get(&reserve.config)
     }
 
     public(friend) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
     ) {
-        reserve.config = config;
+        let old = cell::set(&mut reserve.config, config);
+        reserve_config::destroy(old);
     }
 
     public fun update_price<P>(
@@ -216,7 +219,7 @@ module suilend::reserve {
             add(
                 decimal::from(1),
                 div(
-                    calculate_apr(&reserve.config, utilization_rate),
+                    calculate_apr(config(reserve), utilization_rate),
                     decimal::from(365 * 24 * 60 * 60)
                 )
             ),
@@ -260,7 +263,7 @@ module suilend::reserve {
         reserve.ctoken_supply = reserve.ctoken_supply + new_ctokens;
 
         assert!(
-            le(total_supply(reserve), decimal::from(deposit_limit(&reserve.config))), 
+            le(total_supply(reserve), decimal::from(deposit_limit(config(reserve)))), 
             EDepositLimitExceeded
         );
 
@@ -288,14 +291,14 @@ module suilend::reserve {
         reserve: &Reserve<P>,
         borrow_amount: u64
     ): u64 {
-        ceil(mul(decimal::from(borrow_amount), borrow_fee(&reserve.config)))
+        ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
     }
 
     public fun calculate_liquidation_fee<P>(
         reserve: &Reserve<P>,
         withdraw_amount: u64
     ): u64 {
-        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(&reserve.config)))
+        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(config(reserve))))
     }
 
     public(friend) fun borrow_liquidity<P>(
@@ -306,7 +309,7 @@ module suilend::reserve {
         reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(liquidity_amount));
 
         assert!(
-            le(reserve.borrowed_amount, decimal::from(borrow_limit(&reserve.config))), 
+            le(reserve.borrowed_amount, decimal::from(borrow_limit(config(reserve)))), 
             EBorrowLimitExceeded 
         );
     }
@@ -321,7 +324,10 @@ module suilend::reserve {
 
     #[test_only]
     fun example_reserve_config(): ReserveConfig {
-        reserve_config::create_reserve_config(
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let config = reserve_config::create_reserve_config(
             // open ltv pct
             10,
             // close ltv pct
@@ -353,8 +359,12 @@ module suilend::reserve {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 31536000);
                 v
-            }
-        )
+            },
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::end(scenario);
+        config
     }
 
     #[test_only]
@@ -388,7 +398,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -423,7 +433,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -469,7 +479,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -533,12 +543,13 @@ module suilend::reserve {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 31536000);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config,
+            config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -567,7 +578,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -606,7 +617,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -669,12 +680,13 @@ module suilend::reserve {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 31536000);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config,
+            config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -702,7 +714,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: 0,
-            config: example_reserve_config(),
+            config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -745,7 +757,7 @@ module suilend::reserve {
     ): Reserve<P> {
         Reserve<P> {
             id,
-            config,
+            config: cell::new(config),
             mint_decimals,
             price_identifier: {
                 let v = vector::empty();
@@ -773,7 +785,7 @@ module suilend::reserve {
     public fun destroy_for_testing<P>(reserve: Reserve<P>) {
          let Reserve {
             id: _,
-            config: _,
+            config,
             mint_decimals: _,
             price_identifier: _,
             price: _,
@@ -785,5 +797,8 @@ module suilend::reserve {
             interest_last_update_timestamp_s: _,
             fees_accumulated: _
         } = reserve;
+
+        let config = cell::destroy(config);
+        reserve_config::destroy(config);
     }
 }

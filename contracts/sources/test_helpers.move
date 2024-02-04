@@ -55,7 +55,8 @@ module suilend::test_helpers {
             spread_fee_bps, 
             liquidation_fee_bps, 
             interest_rate_utils,
-            interest_rate_aprs
+            interest_rate_aprs,
+            test_scenario::ctx(scenario)
         )
     }
 

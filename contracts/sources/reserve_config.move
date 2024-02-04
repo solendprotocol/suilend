@@ -2,11 +2,16 @@ module suilend::reserve_config {
     use std::vector::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
     use std::option::{Option, Self};
+    use sui::object::{Self, UID};
+    use sui::tx_context::{TxContext};
+    use sui::test_scenario::{Self};
 
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
 
-    struct ReserveConfig has store, drop {
+    struct ReserveConfig has key, store {
+        id: UID,
+
         // risk params
         open_ltv_pct: u8,
         close_ltv_pct: u8,
@@ -51,8 +56,10 @@ module suilend::reserve_config {
         liquidation_fee_bps: u64, 
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
+        ctx: &mut TxContext
     ): ReserveConfig {
         let config = ReserveConfig {
+            id: object::new(ctx),
             open_ltv_pct,
             close_ltv_pct,
             borrow_weight_bps,
@@ -172,10 +179,33 @@ module suilend::reserve_config {
         decimal::from(0)
     }
 
+    public fun destroy(config: ReserveConfig) {
+        let ReserveConfig { 
+            id, 
+            open_ltv_pct: _,
+            close_ltv_pct: _,
+            borrow_weight_bps: _,
+            deposit_limit: _,
+            borrow_limit: _,
+            liquidation_bonus_pct: _,
+            interest_rate_utils: _,
+            interest_rate_aprs: _,
+            borrow_fee_bps: _,
+            spread_fee_bps: _,
+            liquidation_fee_bps: _,
+        } = config;
+
+        object::delete(id);
+    }
+
 
     // === Tests ==
     #[test]
     fun test_valid_reserve_config() {
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
         let utils = vector::empty();
         vector::push_back(&mut utils, 0);
         vector::push_back(&mut utils, 100);
@@ -184,7 +214,7 @@ module suilend::reserve_config {
         vector::push_back(&mut aprs, 0);
         vector::push_back(&mut aprs, 100);
 
-        create_reserve_config(
+        let config = create_reserve_config(
             10,
             10,
             10_000,
@@ -195,15 +225,23 @@ module suilend::reserve_config {
             2000,
             3000,
             utils,
-            aprs
+            aprs,
+            test_scenario::ctx(&mut scenario)
         );
+
+
+        destroy(config);
+        test_scenario::end(scenario);
     }
 
     // TODO: there are so many other invalid states to test
     #[test]
     #[expected_failure(abort_code = EInvalidReserveConfig)]
     fun test_invalid_reserve_config() {
-        create_reserve_config(
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let config = create_reserve_config(
             // open ltv pct
             10,
             // close ltv pct
@@ -235,13 +273,20 @@ module suilend::reserve_config {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 100);
                 v
-            }
+            },
+            test_scenario::ctx(&mut scenario)
         );
+
+        destroy(config);
+        test_scenario::end(scenario);
     }
 
     #[test_only]
     fun example_reserve_config(): ReserveConfig {
-        create_reserve_config(
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let config = create_reserve_config(
             // open ltv pct
             10,
             // close ltv pct
@@ -273,8 +318,12 @@ module suilend::reserve_config {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 31536000);
                 v
-            }
-        )
+            },
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::end(scenario);
+        config
     }
 
     public fun from(config: &ReserveConfig): ReserveConfigBuilder {
@@ -301,7 +350,7 @@ module suilend::reserve_config {
         builder.close_ltv_pct = option::some(close_ltv_pct);
     }
 
-    public fun build(builder: ReserveConfigBuilder): ReserveConfig {
+    public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
         create_reserve_config(
             option::extract(&mut builder.open_ltv_pct),
             option::extract(&mut builder.close_ltv_pct),
@@ -314,6 +363,7 @@ module suilend::reserve_config {
             option::extract(&mut builder.liquidation_fee_bps),
             option::extract(&mut builder.interest_rate_utils),
             option::extract(&mut builder.interest_rate_aprs),
+            tx_context
         )
     }
 
@@ -321,7 +371,10 @@ module suilend::reserve_config {
 
     #[test_only]
     public fun default_reserve_config(): ReserveConfig {
-        create_reserve_config(
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        
+        let config = create_reserve_config(
             // open ltv pct
             50,
             // close ltv pct
@@ -353,8 +406,13 @@ module suilend::reserve_config {
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 1);
                 v
-            }
-        )
+            },
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::end(scenario);
+
+        config
     }
 
     // TODO tests for validate_utils_and_aprs
@@ -382,5 +440,7 @@ module suilend::reserve_config {
         assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100), 0);
         assert!(calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550), 0);
         assert!(calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000), 0);
+
+        destroy(config);
     }
 }

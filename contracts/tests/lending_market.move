@@ -67,7 +67,8 @@ module suilend::test_lm {
             2000,
             10_000,
             utils(),
-            aprs()
+            aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
 
@@ -149,7 +150,8 @@ module suilend::test_lm {
             2000,
             10_000,
             utils(),
-            aprs()
+            aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -220,7 +222,8 @@ module suilend::test_lm {
             2000,
             10_000,
             utils(),
-            aprs()
+            aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -263,7 +266,8 @@ module suilend::test_lm {
             2000,
             10_000,
             utils(),
-            aprs()
+            aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
         add_reserve<TEST_LM, TEST_SUI>(
@@ -375,7 +379,8 @@ module suilend::test_lm {
             2000,
             10_000,
             utils(),
-            aprs()
+            aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
         let state = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
@@ -439,6 +444,7 @@ module suilend::test_lm {
             3000,
             utils(),
             aprs(),
+            test_scenario::ctx(&mut scenario)
         );
 
         test_helpers::update_reserve_config<TEST_LM, TEST_USDC>(&mut scenario, owner, &owner_cap, config);
