@@ -109,7 +109,6 @@ module suilend::test_helpers {
                 owner_cap,
                 &mut lending_market,
                 config,
-                test_scenario::ctx(scenario)
             );
 
             test_scenario::return_shared(lending_market);

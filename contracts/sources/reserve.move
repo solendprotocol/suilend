@@ -1,4 +1,5 @@
 module suilend::reserve {
+    use std::type_name::{Self, TypeName};
     use sui::balance::{Self, Supply};
     use sui::tx_context::{TxContext};
     use sui::object::{Self, UID, ID};
@@ -51,6 +52,7 @@ module suilend::reserve {
 
     struct Reserve<phantom P> has key, store {
         id: UID,
+        coin_type: TypeName,
 
         config: Cell<ReserveConfig>,
         mint_decimals: u8,
@@ -85,6 +87,7 @@ module suilend::reserve {
         (
             Reserve {
                 id: object::new(ctx),
+                coin_type: type_name::get<T>(),
                 config: cell::new(config),
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
@@ -99,6 +102,10 @@ module suilend::reserve {
             },
             balance::create_supply(CToken<P, T> {})
         )
+    }
+
+    public fun coin_type<P>(reserve: &Reserve<P>): TypeName {
+        reserve.coin_type
     }
 
     // make sure we are using the latest published price on sui
@@ -398,6 +405,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -432,6 +440,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -478,6 +487,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -548,6 +558,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -577,6 +588,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -616,6 +628,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -685,6 +698,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -713,6 +727,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -756,6 +771,7 @@ module suilend::reserve {
     ): Reserve<P> {
         let reserve = Reserve<P> {
             id: object::new(ctx),
+            coin_type: type_name::get<P>(),
             config: cell::new(config),
             mint_decimals,
             price_identifier: {
@@ -786,6 +802,7 @@ module suilend::reserve {
     public fun destroy_for_testing<P>(reserve: Reserve<P>) {
          let Reserve {
             id,
+            coin_type: _,
             config,
             mint_decimals: _,
             price_identifier: _,

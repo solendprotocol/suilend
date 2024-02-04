@@ -1,4 +1,5 @@
 module suilend::obligation {
+    use std::type_name::{TypeName};
     use sui::object::{Self, UID, ID};
     use std::vector::{Self};
     use sui::test_scenario::{Self, Scenario};
@@ -37,12 +38,14 @@ module suilend::obligation {
 
     struct Deposit<phantom P> has store {
         reserve_id: ID,
+        coin_type: TypeName,
         deposited_ctoken_amount: u64,
         market_value: Decimal,
     }
 
     struct Borrow<phantom P> has store {
         reserve_id: ID,
+        coin_type: TypeName,
         borrowed_amount: Decimal,
         cumulative_borrow_rate: Decimal,
         market_value: Decimal
@@ -463,6 +466,7 @@ module suilend::obligation {
 
         let borrow = Borrow<P> {
             reserve_id: object::id(reserve),
+            coin_type: reserve::coin_type(reserve),
             borrowed_amount: decimal::from(0),
             cumulative_borrow_rate: reserve::cumulative_borrow_rate(reserve),
             market_value: decimal::from(0)
@@ -484,6 +488,7 @@ module suilend::obligation {
 
         let deposit = Deposit<P> {
             reserve_id: object::id(reserve),
+            coin_type: reserve::coin_type(reserve),
             deposited_ctoken_amount: 0,
             market_value: decimal::from(0)
         };
@@ -529,6 +534,7 @@ module suilend::obligation {
     public fun destroy_deposit_for_testing<P>(deposit: Deposit<P>) {
         let Deposit {
             reserve_id: _,
+            coin_type: _,
             deposited_ctoken_amount: _,
             market_value: _,
         } = deposit;
@@ -538,6 +544,7 @@ module suilend::obligation {
     public fun destroy_borrow_for_testing<P>(borrow: Borrow<P>) {
         let Borrow {
             reserve_id: _,
+            coin_type: _,
             borrowed_amount: _,
             cumulative_borrow_rate: _,
             market_value: _,

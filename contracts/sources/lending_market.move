@@ -161,7 +161,6 @@ module suilend::lending_market {
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         config: ReserveConfig,
-        _ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -169,19 +168,14 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    public fun refresh_reserve_price<P>(
+    public fun refresh_reserve_price<P, T>(
         lending_market: &mut LendingMarket<P>, 
-        reserve_id: u64,
         clock: &Clock,
         price_info: &PriceInfoObject,
-        _ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let reserve = vector::borrow_mut(
-            &mut lending_market.reserves, 
-            reserve_id
-        );
+        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
         reserve::update_price<P>(reserve, clock, price_info);
     }
 
