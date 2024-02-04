@@ -129,7 +129,7 @@ module suilend::lending_market {
         config: ReserveConfig,
         coin_metadata: &CoinMetadata<T>,
         clock: &Clock,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -139,7 +139,7 @@ module suilend::lending_market {
             coin_metadata, 
             price_info, 
             clock, 
-            reserve_id
+            ctx
         );
 
         vector::push_back(&mut lending_market.reserves, reserve);

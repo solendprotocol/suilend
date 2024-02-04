@@ -1,5 +1,7 @@
 module suilend::reserve {
     use sui::balance::{Self, Supply};
+    use sui::tx_context::{TxContext};
+    use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
     use sui::test_scenario::{Self};
     use std::option::{Self};
@@ -39,7 +41,7 @@ module suilend::reserve {
 
     /* events */
     struct InterestUpdateEvent<phantom P> has drop, copy {
-        reserve_id: u64,
+        reserve_id: ID,
         cumulative_borrow_rate: Decimal,
         available_amount: u64,
         borrowed_amount: Decimal,
@@ -47,8 +49,8 @@ module suilend::reserve {
         timestamp_s: u64
     }
 
-    struct Reserve<phantom P> has store {
-        id: u64,
+    struct Reserve<phantom P> has key, store {
+        id: UID,
 
         config: Cell<ReserveConfig>,
         mint_decimals: u8,
@@ -74,7 +76,7 @@ module suilend::reserve {
         coin_metadata: &CoinMetadata<T>,
         price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
-        reserve_id: u64,
+        ctx: &mut TxContext
     ): (Reserve<P>, Supply<CToken<P, T>>) {
 
         let (price_decimal, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
@@ -82,7 +84,7 @@ module suilend::reserve {
 
         (
             Reserve {
-                id: reserve_id,
+                id: object::new(ctx),
                 config: cell::new(config),
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
@@ -97,10 +99,6 @@ module suilend::reserve {
             },
             balance::create_supply(CToken<P, T> {})
         )
-    }
-
-    public fun id<P>(reserve: &Reserve<P>): u64 {
-        reserve.id
     }
 
     // make sure we are using the latest published price on sui
@@ -239,7 +237,7 @@ module suilend::reserve {
         reserve.interest_last_update_timestamp_s = cur_time_s;
 
         event::emit(InterestUpdateEvent<P> {
-            reserve_id: reserve.id,
+            reserve_id: object::uid_to_inner(&reserve.id),
             cumulative_borrow_rate: reserve.cumulative_borrow_rate,
             available_amount: reserve.available_amount,
             borrowed_amount: reserve.borrowed_amount,
@@ -395,9 +393,11 @@ module suilend::reserve {
     #[test]
     fun test_accessors() {
         use suilend::test_usdc::{TEST_USDC};
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -411,16 +411,15 @@ module suilend::reserve {
             fees_accumulated: decimal::from(0)
         };
 
-        assert!(id(&reserve) == 0, 0);
-
         assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
         assert!(ctoken_market_value(&reserve, 10_000_000_000) == decimal::from(50), 0);
         assert!(cumulative_borrow_rate(&reserve) == decimal::from(1), 0);
         assert!(total_supply(&reserve) == decimal::from(1000), 0);
         assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50), 0);
         assert!(ctoken_ratio(&reserve) == decimal::from(5), 0);
-        destroy_for_testing(reserve);
 
+        destroy_for_testing(reserve);
+        test_scenario::end(scenario);
     }
 
     #[test]
@@ -432,7 +431,7 @@ module suilend::reserve {
         let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -478,7 +477,7 @@ module suilend::reserve {
         let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -548,7 +547,7 @@ module suilend::reserve {
         );
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -577,7 +576,7 @@ module suilend::reserve {
         let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -616,7 +615,7 @@ module suilend::reserve {
         let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -685,7 +684,7 @@ module suilend::reserve {
         );
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(config),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -713,7 +712,7 @@ module suilend::reserve {
         let scenario = test_scenario::begin(owner);
 
         let reserve = Reserve<TEST_USDC> {
-            id: 0,
+            id: object::new(test_scenario::ctx(&mut scenario)),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -744,7 +743,6 @@ module suilend::reserve {
 
     #[test_only]
     public fun create_for_testing<P>(
-        id: u64,
         config: ReserveConfig,
         mint_decimals: u8,
         price: Decimal,
@@ -754,9 +752,10 @@ module suilend::reserve {
         borrowed_amount: Decimal,
         cumulative_borrow_rate: Decimal,
         interest_last_update_timestamp_s: u64,
+        ctx: &mut TxContext
     ): Reserve<P> {
-        Reserve<P> {
-            id,
+        let reserve = Reserve<P> {
+            id: object::new(ctx),
             config: cell::new(config),
             mint_decimals,
             price_identifier: {
@@ -777,14 +776,16 @@ module suilend::reserve {
             cumulative_borrow_rate,
             interest_last_update_timestamp_s,
             fees_accumulated: decimal::from(0)
-        }
+        };
+
+        reserve
     }
 
 
     #[test_only]
     public fun destroy_for_testing<P>(reserve: Reserve<P>) {
          let Reserve {
-            id: _,
+            id,
             config,
             mint_decimals: _,
             price_identifier: _,
@@ -798,6 +799,7 @@ module suilend::reserve {
             fees_accumulated: _
         } = reserve;
 
+        object::delete(id);
         let config = cell::destroy(config);
         reserve_config::destroy(config);
     }
