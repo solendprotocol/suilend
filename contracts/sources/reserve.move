@@ -4,7 +4,6 @@ module suilend::reserve {
     use sui::tx_context::{TxContext};
     use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
-    use sui::test_scenario::{Self};
     use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
@@ -24,6 +23,9 @@ module suilend::reserve {
         borrow_fee,
         liquidation_fee
     };
+
+    #[test_only]
+    use sui::test_scenario::{Self};
 
     friend suilend::lending_market;
     friend suilend::obligation;
@@ -757,7 +759,7 @@ module suilend::reserve {
     }
 
     #[test_only]
-    public fun create_for_testing<P>(
+    public fun create_for_testing<P, T>(
         config: ReserveConfig,
         mint_decimals: u8,
         price: Decimal,
@@ -771,7 +773,7 @@ module suilend::reserve {
     ): Reserve<P> {
         let reserve = Reserve<P> {
             id: object::new(ctx),
-            coin_type: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
             config: cell::new(config),
             mint_decimals,
             price_identifier: {

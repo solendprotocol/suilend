@@ -4,6 +4,8 @@ module suilend::reserve_config {
     use std::option::{Option, Self};
     use sui::object::{Self, UID};
     use sui::tx_context::{TxContext};
+
+    #[test_only]
     use sui::test_scenario::{Self};
 
     const EInvalidReserveConfig: u64 = 0;
@@ -348,6 +350,10 @@ module suilend::reserve_config {
 
     public fun set_close_ltv_pct(builder: &mut ReserveConfigBuilder, close_ltv_pct: u8) {
         builder.close_ltv_pct = option::some(close_ltv_pct);
+    }
+
+    public fun set_borrow_weight_bps(builder: &mut ReserveConfigBuilder, borrow_weight_bps: u64) {
+        builder.borrow_weight_bps = option::some(borrow_weight_bps);
     }
 
     public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {

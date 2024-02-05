@@ -11,11 +11,13 @@ module suilend::lending_market {
     use suilend::reserve::{Self, Reserve, CToken};
     use suilend::reserve_config::{ReserveConfig};
     use std::vector::{Self};
-    use std::debug::{Self};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self, Balance, Supply};
     use pyth::price_info::{PriceInfoObject};
+
+    #[test_only]
+    use std::debug::{Self};
 
     const CURRENT_VERSION: u64 = 1;
 
