@@ -7,7 +7,7 @@ module suilend::reserve {
     use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self};
@@ -66,6 +66,7 @@ module suilend::reserve {
         price_identifier: PriceIdentifier,
 
         price: Decimal,
+        smoothed_price: Decimal,
         price_last_update_timestamp_s: u64,
 
         available_amount: u64,
@@ -86,7 +87,7 @@ module suilend::reserve {
         ctx: &mut TxContext
     ): (Reserve<P>, Supply<CToken<P, T>>) {
 
-        let (price_decimal, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
 
         (
@@ -97,6 +98,7 @@ module suilend::reserve {
                 mint_decimals: coin::get_decimals(coin_metadata),
                 price_identifier,
                 price: option::extract(&mut price_decimal),
+                smoothed_price: smoothed_price_decimal,
                 price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
                 available_amount: 0,
                 ctoken_supply: 0,
@@ -127,6 +129,14 @@ module suilend::reserve {
         reserve.price
     }
 
+    public fun price_lower_bound<P>(reserve: &Reserve<P>): Decimal {
+        min(reserve.price, reserve.smoothed_price)
+    }
+
+    public fun price_upper_bound<P>(reserve: &Reserve<P>): Decimal {
+        max(reserve.price, reserve.smoothed_price)
+    }
+
     public fun market_value<P>(
         reserve: &Reserve<P>, 
         liquidity_amount: Decimal
@@ -134,6 +144,32 @@ module suilend::reserve {
         div(
             mul(
                 price(reserve),
+                liquidity_amount
+            ),
+            decimal::from(math::pow(10, reserve.mint_decimals))
+        )
+    }
+
+    public fun market_value_lower_bound<P>(
+        reserve: &Reserve<P>, 
+        liquidity_amount: Decimal
+    ): Decimal {
+        div(
+            mul(
+                price_lower_bound(reserve),
+                liquidity_amount
+            ),
+            decimal::from(math::pow(10, reserve.mint_decimals))
+        )
+    }
+
+    public fun market_value_upper_bound<P>(
+        reserve: &Reserve<P>, 
+        liquidity_amount: Decimal
+    ): Decimal {
+        div(
+            mul(
+                price_upper_bound(reserve),
                 liquidity_amount
             ),
             decimal::from(math::pow(10, reserve.mint_decimals))
@@ -151,6 +187,19 @@ module suilend::reserve {
         );
 
         market_value(reserve, liquidity_amount)
+    }
+
+    public fun ctoken_market_value_lower_bound<P>(
+        reserve: &Reserve<P>, 
+        ctoken_amount: u64
+    ): Decimal {
+        // TODO should i floor here?
+        let liquidity_amount = mul(
+            decimal::from(ctoken_amount),
+            ctoken_ratio(reserve)
+        );
+
+        market_value_lower_bound(reserve, liquidity_amount)
     }
 
 
@@ -387,9 +436,11 @@ module suilend::reserve {
     public fun update_price_for_testing<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
-        price_decimal: Decimal
+        price_decimal: Decimal,
+        smoothed_price_decimal: Decimal
     ) {
         reserve.price = price_decimal;
+        reserve.smoothed_price = smoothed_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
@@ -421,6 +472,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(2),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -456,6 +508,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -503,6 +556,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -574,6 +628,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -604,6 +659,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -644,6 +700,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -714,6 +771,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -743,6 +801,7 @@ module suilend::reserve {
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
+            smoothed_price: decimal::from(1),
             price_last_update_timestamp_s: 0,
             available_amount: 500,
             ctoken_supply: 200,
@@ -796,6 +855,7 @@ module suilend::reserve {
                 price_identifier::from_byte_vec(v)
             },
             price,
+            smoothed_price: price,
             price_last_update_timestamp_s,
             available_amount,
             ctoken_supply,
@@ -818,6 +878,7 @@ module suilend::reserve {
             mint_decimals: _,
             price_identifier: _,
             price: _,
+            smoothed_price: _,
             price_last_update_timestamp_s: _,
             available_amount: _,
             ctoken_supply: _,

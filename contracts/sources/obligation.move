@@ -11,10 +11,13 @@ module suilend::obligation {
     #[test_only]
     use sui::test_scenario::{Self, Scenario};
 
+    #[test_only]
+    use sui::clock::{Self};
+
     friend suilend::lending_market;
 
     /* errors */
-    const EObligationIsUnhealthy: u64 = 0;
+    const EObligationIsNotHealthy: u64 = 0;
     const EObligationIsHealthy: u64 = 1;
     const EBorrowNotFound: u64 = 2;
     const EDepositNotFound: u64 = 3;
@@ -36,6 +39,7 @@ module suilend::obligation {
 
         unweighted_borrowed_value_usd: Decimal,
         weighted_borrowed_value_usd: Decimal,
+        weighted_borrowed_value_upper_bound_usd: Decimal,
     }
 
     struct Deposit<phantom P> has store {
@@ -78,6 +82,7 @@ module suilend::obligation {
             deposited_value_usd: decimal::from(0),
             unweighted_borrowed_value_usd: decimal::from(0),
             weighted_borrowed_value_usd: decimal::from(0),
+            weighted_borrowed_value_upper_bound_usd: decimal::from(0),
             allowed_borrow_value_usd: decimal::from(0),
             unhealthy_borrow_value_usd: decimal::from(0)
         }
@@ -129,13 +134,17 @@ module suilend::obligation {
                 deposit_reserve,
                 deposit.deposited_ctoken_amount
             );
+            let market_value_lower_bound = reserve::ctoken_market_value_lower_bound(
+                deposit_reserve,
+                deposit.deposited_ctoken_amount
+            );
 
             deposit.market_value = market_value;
             deposited_value_usd = add(deposited_value_usd, market_value);
             allowed_borrow_value_usd = add(
                 allowed_borrow_value_usd,
                 mul(
-                    market_value,
+                    market_value_lower_bound,
                     open_ltv(config(deposit_reserve))
                 )
             );
@@ -157,6 +166,7 @@ module suilend::obligation {
         let i = 0;
         let unweighted_borrowed_value_usd = decimal::from(0);
         let weighted_borrowed_value_usd = decimal::from(0);
+        let weighted_borrowed_value_upper_bound_usd = decimal::from(0);
 
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow_mut(&mut obligation.borrows, i);
@@ -168,6 +178,10 @@ module suilend::obligation {
             compound_interest(borrow, borrow_reserve);
 
             let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
+            let market_value_upper_bound = reserve::market_value_upper_bound(
+                borrow_reserve, 
+                borrow.borrowed_amount
+            ); 
 
             borrow.market_value = market_value;
             unweighted_borrowed_value_usd = add(unweighted_borrowed_value_usd, market_value);
@@ -178,12 +192,20 @@ module suilend::obligation {
                     borrow_weight(config(borrow_reserve))
                 )
             );
+            weighted_borrowed_value_upper_bound_usd = add(
+                weighted_borrowed_value_upper_bound_usd,
+                mul(
+                    market_value_upper_bound,
+                    borrow_weight(config(borrow_reserve))
+                )
+            );
 
             i = i + 1;
         };
 
         obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
         obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
+        obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
     }
 
     public(friend) fun deposit<P>(
@@ -204,7 +226,7 @@ module suilend::obligation {
         obligation.allowed_borrow_value_usd = add(
             obligation.allowed_borrow_value_usd,
             mul(
-                deposit_value,
+                reserve::ctoken_market_value_lower_bound(reserve, ctoken_amount),
                 open_ltv(config(reserve))
             )
         );
@@ -228,17 +250,24 @@ module suilend::obligation {
         borrow.borrowed_amount = add(borrow.borrowed_amount, decimal::from(amount));
 
         // update health values
-        let new_market_value = reserve::market_value(reserve, borrow.borrowed_amount);
-        let diff = sub(new_market_value, borrow.market_value);
+        let borrow_market_value = reserve::market_value(reserve, decimal::from(amount));
+        let borrow_market_value_upper_bound = reserve::market_value_upper_bound(reserve, decimal::from(amount));
 
-        borrow.market_value = new_market_value;
-        obligation.unweighted_borrowed_value_usd = add(obligation.unweighted_borrowed_value_usd, diff);
+        borrow.market_value = add(borrow.market_value, borrow_market_value);
+        obligation.unweighted_borrowed_value_usd = add(
+            obligation.unweighted_borrowed_value_usd, 
+            borrow_market_value
+        );
         obligation.weighted_borrowed_value_usd = add(
             obligation.weighted_borrowed_value_usd, 
-            mul(diff, borrow_weight(config(reserve)))
+            mul(borrow_market_value, borrow_weight(config(reserve)))
+        );
+        obligation.weighted_borrowed_value_upper_bound_usd = add(
+            obligation.weighted_borrowed_value_upper_bound_usd, 
+            mul(borrow_market_value_upper_bound, borrow_weight(config(reserve)))
         );
 
-        assert!(is_healthy(obligation), EObligationIsUnhealthy);
+        assert!(is_healthy(obligation), EObligationIsNotHealthy);
     }
 
     public(friend) fun repay<P>(
@@ -260,6 +289,8 @@ module suilend::obligation {
         if (le(interest_diff, repay_amount)) {
             let diff = sub(repay_amount, interest_diff);
             let repay_value = reserve::market_value(reserve, diff);
+            let repay_value_upper_bound = reserve::market_value_upper_bound(reserve, diff);
+
             borrow.market_value = sub(borrow.market_value, repay_value);
             obligation.unweighted_borrowed_value_usd = sub(
                 obligation.unweighted_borrowed_value_usd,
@@ -269,10 +300,16 @@ module suilend::obligation {
                 obligation.weighted_borrowed_value_usd,
                 mul(repay_value, borrow_weight(config(reserve)))
             );
+            obligation.weighted_borrowed_value_upper_bound_usd = sub(
+                obligation.weighted_borrowed_value_upper_bound_usd,
+                mul(repay_value_upper_bound, borrow_weight(config(reserve)))
+            );
         }
         else {
             let additional_borrow_amount = sub(interest_diff, repay_amount);
             let additional_borrow_value = reserve::market_value(reserve, additional_borrow_amount);
+            let additional_borrow_value_upper_bound = reserve::market_value_upper_bound(reserve, additional_borrow_amount);
+
             borrow.market_value = add(borrow.market_value, additional_borrow_value);
             obligation.unweighted_borrowed_value_usd = add(
                 obligation.unweighted_borrowed_value_usd,
@@ -281,6 +318,10 @@ module suilend::obligation {
             obligation.weighted_borrowed_value_usd = add(
                 obligation.weighted_borrowed_value_usd,
                 mul(additional_borrow_value, borrow_weight(config(reserve)))
+            );
+            obligation.weighted_borrowed_value_upper_bound_usd = add(
+                obligation.weighted_borrowed_value_upper_bound_usd,
+                mul(additional_borrow_value_upper_bound, borrow_weight(config(reserve)))
             );
         }
 
@@ -303,7 +344,8 @@ module suilend::obligation {
         obligation.allowed_borrow_value_usd = sub(
             obligation.allowed_borrow_value_usd,
             mul(
-                withdraw_market_value,
+                // need to use lower bound to keep calculation consistent
+                reserve::ctoken_market_value_lower_bound(reserve, ctoken_amount),
                 open_ltv(config(reserve))
             )
         );
@@ -323,7 +365,7 @@ module suilend::obligation {
     ) {
         withdraw_unchecked(obligation, reserve, ctoken_amount);
 
-        assert!(is_healthy(obligation), EObligationIsUnhealthy);
+        assert!(is_healthy(obligation), EObligationIsNotHealthy);
     }
 
     public(friend) fun liquidate<P>(
@@ -389,7 +431,7 @@ module suilend::obligation {
     }
 
     public fun is_healthy<P>(obligation: &Obligation<P>): bool {
-        le(obligation.weighted_borrowed_value_usd, obligation.allowed_borrow_value_usd)
+        le(obligation.weighted_borrowed_value_upper_bound_usd, obligation.allowed_borrow_value_usd)
     }
 
     public fun is_unhealthy<P>(obligation: &Obligation<P>): bool {
@@ -528,6 +570,7 @@ module suilend::obligation {
             unhealthy_borrow_value_usd: _,
             unweighted_borrowed_value_usd: _,
             weighted_borrowed_value_usd: _,
+            weighted_borrowed_value_upper_bound_usd: _,
         } = obligation;
 
         while (vector::length(&deposits) > 0) {
@@ -810,16 +853,27 @@ module suilend::obligation {
 
     #[test]
     public fun test_deposit() {
-        use std::debug;
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         let usdc_reserve = usdc_reserve(&mut scenario);
         let sui_reserve = sui_reserve(&mut scenario);
-        debug::print(&usdc_reserve);
-        debug::print(&sui_reserve);
 
         let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from_percent(90)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(9)
+        );
 
         deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
         deposit<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
@@ -837,7 +891,7 @@ module suilend::obligation {
 
         assert!(vector::length(&obligation.borrows) == 0, 0);
         assert!(obligation.deposited_value_usd == decimal::from(1200), 0);
-        assert!(obligation.allowed_borrow_value_usd == decimal::from(300), 1);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(270), 1);
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(660), 2);
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from(0), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(0), 4);
@@ -846,11 +900,12 @@ module suilend::obligation {
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
         destroy_for_testing(obligation);
+        clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
 
     #[test]
-    #[expected_failure(abort_code = EObligationIsUnhealthy)]
+    #[expected_failure(abort_code = EObligationIsNotHealthy)]
     public fun test_borrow_fail() {
         use sui::test_scenario::{Self};
 
@@ -882,10 +937,24 @@ module suilend::obligation {
         let sui_reserve = sui_reserve(&mut scenario);
 
         let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
 
         deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
-        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 50 * 1_000_000);
-        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 50 * 1_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 12_500_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 12_500_000);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -896,24 +965,26 @@ module suilend::obligation {
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
         let usdc_borrow = vector::borrow(&obligation.borrows, 0);
-        assert!(usdc_borrow.borrowed_amount == decimal::from(100 * 1_000_000), 1);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(25 * 1_000_000), 1);
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from(2), 2);
-        assert!(usdc_borrow.market_value == decimal::from(100), 3);
+        assert!(usdc_borrow.market_value == decimal::from(25), 3);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(100), 3);
-        assert!(obligation.weighted_borrowed_value_usd == decimal::from(200), 4);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(25), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(50), 4);
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(100), 4);
 
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
         destroy_for_testing(obligation);
+        clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
 
     #[test]
-    #[expected_failure(abort_code = EObligationIsUnhealthy)]
+    #[expected_failure(abort_code = EObligationIsNotHealthy)]
     public fun test_withdraw_fail_unhealthy() {
         use sui::test_scenario::{Self};
 
@@ -971,32 +1042,50 @@ module suilend::obligation {
         let sui_reserve = sui_reserve(&mut scenario);
 
         let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
 
         deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
-        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 50 * 1_000_000);
-        withdraw<TEST_MARKET>(&mut obligation, &sui_reserve, 50 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 20 * 1_000_000);
+        withdraw<TEST_MARKET>(&mut obligation, &sui_reserve, 20 * 1_000_000_000);
+
+        std::debug::print(&obligation);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
         let sui_deposit = vector::borrow(&obligation.deposits, 0);
-        assert!(sui_deposit.deposited_ctoken_amount == 50 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value == decimal::from(500), 4);
+        assert!(sui_deposit.deposited_ctoken_amount == 80 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(800), 4);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
         let usdc_borrow = vector::borrow(&obligation.borrows, 0);
-        assert!(usdc_borrow.borrowed_amount == decimal::from(50 * 1_000_000), 1);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(20 * 1_000_000), 1);
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from(2), 2);
-        assert!(usdc_borrow.market_value == decimal::from(50), 3);
+        assert!(usdc_borrow.market_value == decimal::from(20), 3);
 
-        assert!(obligation.deposited_value_usd == decimal::from(500), 0);
-        assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
-        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(250), 2);
-        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(50), 3);
-        assert!(obligation.weighted_borrowed_value_usd == decimal::from(100), 4);
+        assert!(obligation.deposited_value_usd == decimal::from(800), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(80), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(400), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(20), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(40), 4);
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(80), 4);
 
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
+        clock::destroy_for_testing(clock);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
     }
@@ -1005,7 +1094,6 @@ module suilend::obligation {
     public fun test_repay_happy() {
         use sui::test_scenario::{Self};
         use sui::clock::{Self};
-        use std::debug;
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
@@ -1017,16 +1105,26 @@ module suilend::obligation {
 
         let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
 
-        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
-        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
 
+        deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 25 * 1_000_000);
 
         clock::set_for_testing(&mut clock, 1000);
         reserve::compound_interest(&mut usdc_reserve, &clock);
 
-        repay<TEST_MARKET>(&mut obligation, &usdc_reserve, decimal::from(100 * 1_000_000));
-
-        debug::print(&obligation);
+        repay<TEST_MARKET>(&mut obligation, &usdc_reserve, decimal::from(25 * 1_000_000));
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -1038,15 +1136,16 @@ module suilend::obligation {
 
         // borrow was compounded by 1% so there should be borrows outstanding
         let usdc_borrow = vector::borrow(&obligation.borrows, 0);
-        assert!(usdc_borrow.borrowed_amount == decimal::from(1_000_000), 1);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(250_000), 1);
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
-        assert!(usdc_borrow.market_value == decimal::from(1), 3);
+        assert!(usdc_borrow.market_value == decimal::from_percent(25), 3);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(1), 3);
-        assert!(obligation.weighted_borrowed_value_usd == decimal::from(2), 4);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent(25), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from_percent(50), 4);
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(1), 4);
 
         reserve::destroy_for_testing(usdc_reserve);
         reserve::destroy_for_testing(sui_reserve);
@@ -1165,7 +1264,7 @@ module suilend::obligation {
         borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
 
         clock::set_for_testing(&mut clock, 1000); 
-        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10));
+        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10), decimal::from(10));
 
         let reserves = {
             let v = vector::empty();
@@ -1208,8 +1307,8 @@ module suilend::obligation {
         borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
 
         clock::set_for_testing(&mut clock, 1000); 
-        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10));
-        reserve::update_price_for_testing(&mut usdc_reserve, &clock, decimal::from(1));
+        reserve::update_price_for_testing(&mut sui_reserve, &clock, decimal::from(10), decimal::from(9));
+        reserve::update_price_for_testing(&mut usdc_reserve, &clock, decimal::from(1), decimal::from(2));
 
         let reserves = {
             let v = vector::empty();
@@ -1241,11 +1340,13 @@ module suilend::obligation {
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
         assert!(usdc_borrow.market_value == decimal::from(101), 3);
 
+        std::debug::print(&obligation);
         assert!(obligation.deposited_value_usd == decimal::from(1100), 0);
-        assert!(obligation.allowed_borrow_value_usd == decimal::from(250), 1);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(230), 1);
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(580), 2);
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from(101), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(202), 4);
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(404), 4);
 
         reserve::destroy_for_testing(vector::pop_back(&mut reserves));
         reserve::destroy_for_testing(vector::pop_back(&mut reserves));
@@ -1269,10 +1370,6 @@ module suilend::obligation {
         let sui_reserve = sui_reserve(&mut scenario);
         let usdc_reserve = usdc_reserve(&mut scenario);
         // let eth_reserve = eth_reserve();
-
-        // TODO many cases to test here:
-        // 1. deposit smaller than repay value
-        // 2. partial repay 
 
         let obligation = create_obligation<TEST_MARKET>(owner, test_scenario::ctx(&mut scenario));
 
