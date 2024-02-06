@@ -466,6 +466,31 @@ module suilend::lending_market {
         balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));
     }
 
+    // TODO: do we want a separate fee collector address? instead of using the owner
+    public fun claim_fees<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        ctx: &mut TxContext
+    ): (Coin<CToken<P, T>>, Coin<T>) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
+
+        let claimed_spread_fees_amount = reserve::claim_spread_fees<P>(reserve);
+        let claimed_spread_fees = balance::split(&mut balances.available_amount, claimed_spread_fees_amount);
+
+        let fee_balance = balance::withdraw_all(&mut balances.fees);
+        balance::join(&mut fee_balance, claimed_spread_fees);
+
+        let ctoken_fee_balance = balance::withdraw_all(&mut balances.ctoken_fees);
+
+        (
+            coin::from_balance(ctoken_fee_balance, ctx),
+            coin::from_balance(fee_balance, ctx)
+        )
+
+    }
+
     fun get_reserve<P, T>(
         lending_market: &LendingMarket<P>,
     ): (&Reserve<P>, &Balances<P, T>) {

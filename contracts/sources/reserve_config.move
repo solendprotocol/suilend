@@ -147,6 +147,10 @@ module suilend::reserve_config {
         decimal::from_bps(config.liquidation_fee_bps)
     }
 
+    public fun spread_fee(config: &ReserveConfig): Decimal {
+        decimal::from_bps(config.spread_fee_bps)
+    }
+
     public fun calculate_apr(config: &ReserveConfig, cur_util: Decimal): Decimal {
         assert!(le(cur_util, decimal::from(1)), EInvalidUtil);
 

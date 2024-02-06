@@ -21,7 +21,8 @@ module suilend::reserve {
         deposit_limit, 
         borrow_limit, 
         borrow_fee,
-        liquidation_fee
+        liquidation_fee,
+        spread_fee
     };
 
     #[test_only]
@@ -76,7 +77,7 @@ module suilend::reserve {
         cumulative_borrow_rate: Decimal,
         interest_last_update_timestamp_s: u64,
 
-        fees_accumulated: Decimal
+        unclaimed_spread_fees: Decimal
     }
 
     public(friend) fun create_reserve<P, T>(
@@ -105,7 +106,7 @@ module suilend::reserve {
                 borrowed_amount: decimal::from(0),
                 cumulative_borrow_rate: decimal::from(1),
                 interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-                fees_accumulated: decimal::from(0)
+                unclaimed_spread_fees: decimal::from(0)
             },
             balance::create_supply(CToken<P, T> {})
         )
@@ -208,19 +209,28 @@ module suilend::reserve {
     }
 
     public fun total_supply<P>(reserve: &Reserve<P>): Decimal {
-        add(
-            decimal::from(reserve.available_amount),
-            reserve.borrowed_amount
+        // TODO: saturating sub here? might need to if we implement a socialized loss
+        // mechanism
+        sub(
+            add(
+                decimal::from(reserve.available_amount),
+                reserve.borrowed_amount
+            ),
+            reserve.unclaimed_spread_fees
         )
     }
 
     public fun calculate_utilization_rate<P>(reserve: &Reserve<P>): Decimal {
-        let total_supply = total_supply(reserve);
-        if (eq(total_supply, decimal::from(0))) {
+        let total_supply_excluding_fees = add(
+            decimal::from(reserve.available_amount),
+            reserve.borrowed_amount
+        );
+
+        if (eq(total_supply_excluding_fees, decimal::from(0))) {
             decimal::from(0)
         }
         else {
-            div(reserve.borrowed_amount, total_supply)
+            div(reserve.borrowed_amount, total_supply_excluding_fees)
         }
     }
 
@@ -229,7 +239,8 @@ module suilend::reserve {
         let total_supply = total_supply(reserve);
 
         // this branch is only used once -- when the reserve is first initialized and has 
-        // zero deposits.
+        // zero deposits. after that, borrows and redemptions won't let the ctoken supply fall 
+        // below MIN_AVAILABLE_AMOUNT
         if (reserve.ctoken_supply == 0) {
             decimal::from(1)
         }
@@ -276,7 +287,7 @@ module suilend::reserve {
 
         // I(t + n) = I(t) * (1 + apr()/SECONDS_IN_YEAR) ^ n
         let utilization_rate = calculate_utilization_rate(reserve);
-        let additional_borrow_rate = pow(
+        let compounded_borrow_rate = pow(
             add(
                 decimal::from(1),
                 div(
@@ -289,12 +300,22 @@ module suilend::reserve {
 
         reserve.cumulative_borrow_rate = mul(
             reserve.cumulative_borrow_rate,
-            additional_borrow_rate
+            compounded_borrow_rate
         );
 
-        reserve.borrowed_amount = mul(
+        let net_new_debt = mul(
             reserve.borrowed_amount,
-            additional_borrow_rate
+            sub(compounded_borrow_rate, decimal::from(1))
+        );
+
+        reserve.unclaimed_spread_fees = add(
+            reserve.unclaimed_spread_fees,
+            mul(net_new_debt, spread_fee(config(reserve)))
+        );
+
+        reserve.borrowed_amount = add(
+            reserve.borrowed_amount,
+            net_new_debt 
         );
 
         reserve.interest_last_update_timestamp_s = cur_time_s;
@@ -307,6 +328,21 @@ module suilend::reserve {
             ctoken_supply: reserve.ctoken_supply,
             timestamp_s: cur_time_s
         });
+    }
+
+    public(friend) fun claim_spread_fees<P>(reserve: &mut Reserve<P>): u64 {
+        let claimable_spread_fees = floor(min(
+            decimal::from(reserve.available_amount),
+            reserve.unclaimed_spread_fees
+        ));
+
+        reserve.available_amount = reserve.available_amount - claimable_spread_fees;
+        reserve.unclaimed_spread_fees = sub(
+            reserve.unclaimed_spread_fees,
+            decimal::from(claimable_spread_fees)
+        );
+
+        claimable_spread_fees
     }
 
     public(friend) fun deposit_liquidity_and_mint_ctokens<P>(
@@ -479,7 +515,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
@@ -515,7 +551,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
@@ -525,7 +561,10 @@ module suilend::reserve {
 
         assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
         assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
+        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50), 0);
+        assert!(ctoken_ratio(&reserve) == decimal::from_percent_u64(501), 0);
         assert!(reserve.interest_last_update_timestamp_s == 1, 0);
+
 
         // test idempotency
 
@@ -533,6 +572,7 @@ module suilend::reserve {
 
         assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
         assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
+        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50), 0);
         assert!(reserve.interest_last_update_timestamp_s == 1, 0);
 
         clock::destroy_for_testing(clock);
@@ -563,7 +603,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000);
@@ -635,7 +675,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         deposit_liquidity_and_mint_ctokens(&mut reserve, 1);
@@ -666,7 +706,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         let ctoken_amount = deposit_liquidity_and_mint_ctokens(&mut reserve, 1000);
@@ -707,7 +747,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         borrow_liquidity(&mut reserve, 400);
@@ -778,7 +818,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         borrow_liquidity(&mut reserve, 1);
@@ -808,7 +848,7 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 1,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         borrow_liquidity(&mut reserve, 400);
@@ -862,7 +902,7 @@ module suilend::reserve {
             borrowed_amount,
             cumulative_borrow_rate,
             interest_last_update_timestamp_s,
-            fees_accumulated: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0)
         };
 
         reserve
@@ -885,7 +925,7 @@ module suilend::reserve {
             borrowed_amount: _,
             cumulative_borrow_rate: _,
             interest_last_update_timestamp_s: _,
-            fees_accumulated: _
+            unclaimed_spread_fees: _
         } = reserve;
 
         object::delete(id);
