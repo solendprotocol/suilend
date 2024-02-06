@@ -34,13 +34,16 @@ module suilend::reserve {
 
     /* constants */
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
-
+    // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token_amount
+    // can never be withdrawn or borrowed.
+    const MIN_AVAILABLE_AMOUNT: u64 = 100; 
     /* errors */
     const EPriceStale: u64 = 0;
     const EPriceIdentifierMismatch: u64 = 1;
     const EDepositLimitExceeded: u64 = 2;
     const EBorrowLimitExceeded: u64 = 3;
     const EInvalidPrice: u64 = 4;
+    const EMinAvailableAmountViolated: u64 = 5;
 
     /* events */
     struct InterestUpdateEvent<phantom P> has drop, copy {
@@ -176,7 +179,9 @@ module suilend::reserve {
     public fun ctoken_ratio<P>(reserve: &Reserve<P>): Decimal {
         let total_supply = total_supply(reserve);
 
-        if (eq(total_supply, decimal::from(0))) {
+        // this branch is only used once -- when the reserve is first initialized and has 
+        // zero deposits.
+        if (reserve.ctoken_supply == 0) {
             decimal::from(1)
         }
         else {
@@ -291,6 +296,8 @@ module suilend::reserve {
         reserve.available_amount = reserve.available_amount - liquidity_amount;
         reserve.ctoken_supply = reserve.ctoken_supply - ctoken_amount;
 
+        assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
+
         liquidity_amount
     }
 
@@ -319,6 +326,8 @@ module suilend::reserve {
             le(reserve.borrowed_amount, decimal::from(borrow_limit(config(reserve)))), 
             EBorrowLimitExceeded 
         );
+
+        assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
     }
 
     public(friend) fun repay_liquidity<P>(
