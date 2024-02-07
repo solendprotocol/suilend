@@ -203,6 +203,19 @@ module suilend::reserve {
         market_value_lower_bound(reserve, liquidity_amount)
     }
 
+    public fun ctoken_market_value_upper_bound<P>(
+        reserve: &Reserve<P>, 
+        ctoken_amount: u64
+    ): Decimal {
+        // TODO should i floor here?
+        let liquidity_amount = mul(
+            decimal::from(ctoken_amount),
+            ctoken_ratio(reserve)
+        );
+
+        market_value_upper_bound(reserve, liquidity_amount)
+    }
+
 
     public fun cumulative_borrow_rate<P>(reserve: &Reserve<P>): Decimal {
         reserve.cumulative_borrow_rate

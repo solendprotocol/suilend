@@ -1,10 +1,11 @@
 module suilend::lending_market {
     use sui::object::{Self, ID, UID};
+    use suilend::rate_limiter::{Self, RateLimiter};
     use sui::event::{Self};
     use suilend::decimal::{Self};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
-    use sui::clock::{Clock};
+    use sui::clock::{Self, Clock};
     use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
@@ -78,6 +79,9 @@ module suilend::lending_market {
         reserves: vector<Reserve<P>>,
         obligations: ObjectTable<ID, Obligation<P>>,
         balances: Bag,
+
+        // window duration is in seconds
+        rate_limiter: RateLimiter
     }
 
     struct LendingMarketOwnerCap<phantom P> has key, store {
@@ -117,6 +121,7 @@ module suilend::lending_market {
             reserves: vector::empty(),
             obligations: object_table::new(ctx),
             balances: bag::new(ctx),
+            rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0)
         };
         
         transfer::share_object(lending_market);
@@ -319,6 +324,13 @@ module suilend::lending_market {
         reserve::borrow_liquidity<P>(reserve, amount + borrow_fee);
         obligation::borrow<P>(obligation, reserve, amount + borrow_fee);
 
+        let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(amount + borrow_fee));
+        rate_limiter::process_qty(
+            &mut lending_market.rate_limiter, 
+            clock::timestamp_ms(clock) / 1000,
+            borrow_value
+        );
+
         event::emit(BorrowEvent<P, T> {
             liquidity_amount: amount + borrow_fee,
             obligation_id: obligation_owner_cap.obligation_id,
@@ -352,6 +364,13 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
 
         obligation::withdraw<P>(obligation, reserve, amount);
+
+        let withdraw_value = reserve::ctoken_market_value_upper_bound(reserve, amount);
+        rate_limiter::process_qty(
+            &mut lending_market.rate_limiter, 
+            clock::timestamp_ms(clock) / 1000,
+            withdraw_value
+        );
 
         event::emit(WithdrawEvent<P, T> {
             ctoken_amount: amount,
