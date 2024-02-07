@@ -391,18 +391,28 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&repay_coins) > 0, ETooSmall);
 
-        let obligation: Obligation<P> = object_table::remove(
+        let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_id
         );
 
-        obligation::refresh<P>(&mut obligation, &mut lending_market.reserves, clock);
+        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let (repay_reserve, _) = get_reserve<P, Repay>(lending_market);
-        let (withdraw_reserve, _) = get_reserve<P, Withdraw>(lending_market);
+        let repay_balances: &Balances<P, Repay> = bag::borrow(
+            &lending_market.balances, 
+            Name<Repay> {}
+        );
+        let repay_reserve = vector::borrow(&lending_market.reserves, repay_balances.reserve_id);
+
+        let withdraw_balances: &Balances<P, Repay> = bag::borrow(
+            &lending_market.balances, 
+            Name<Repay> {}
+        );
+        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_balances.reserve_id);
+
 
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
-            &mut obligation, 
+            obligation, 
             repay_reserve, 
             withdraw_reserve, 
             coin::value(&repay_coins)
@@ -415,8 +425,6 @@ module suilend::lending_market {
             withdraw_reserve, 
             withdraw_ctoken_amount
         );
-
-        object_table::add(&mut lending_market.obligations, object::id(&obligation), obligation);
 
         {
             let (repay_reserve, repay_balances) = get_reserve_mut<P, Repay>(lending_market);

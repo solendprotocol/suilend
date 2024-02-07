@@ -88,4 +88,9 @@ module suilend::mock_pyth {
         
     }
 
+    public fun destroy(state: State) {
+        let State { id, num_feeds: _ } = state;
+        object::delete(id);
+    }
+
 }
