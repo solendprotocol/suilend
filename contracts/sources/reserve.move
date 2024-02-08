@@ -1,4 +1,5 @@
 module suilend::reserve {
+    // === Imports ===
     use std::type_name::{Self, TypeName};
     use sui::balance::{Self, Supply};
     use sui::tx_context::{TxContext};
@@ -28,17 +29,11 @@ module suilend::reserve {
     #[test_only]
     use sui::test_scenario::{Self};
 
+    // === Friends ===
     friend suilend::lending_market;
     friend suilend::obligation;
 
-    struct CToken<phantom P, phantom T> has drop {}
-
-    /* constants */
-    const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
-    // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token_amount
-    // can never be withdrawn or borrowed.
-    const MIN_AVAILABLE_AMOUNT: u64 = 100; 
-    /* errors */
+    // === Errors ===
     const EPriceStale: u64 = 0;
     const EPriceIdentifierMismatch: u64 = 1;
     const EDepositLimitExceeded: u64 = 2;
@@ -46,16 +41,13 @@ module suilend::reserve {
     const EInvalidPrice: u64 = 4;
     const EMinAvailableAmountViolated: u64 = 5;
 
-    /* events */
-    struct InterestUpdateEvent<phantom P> has drop, copy {
-        reserve_id: ID,
-        cumulative_borrow_rate: Decimal,
-        available_amount: u64,
-        borrowed_amount: Decimal,
-        ctoken_supply: u64,
-        timestamp_s: u64
-    }
+    // === Constants ===
+    const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
+    // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token_amount
+    // can never be withdrawn or borrowed.
+    const MIN_AVAILABLE_AMOUNT: u64 = 100; 
 
+    // === Structs ===
     struct Reserve<phantom P> has key, store {
         id: UID,
         coin_type: TypeName,
@@ -80,38 +72,18 @@ module suilend::reserve {
         unclaimed_spread_fees: Decimal
     }
 
-    public(friend) fun create_reserve<P, T>(
-        config: ReserveConfig, 
-        coin_metadata: &CoinMetadata<T>,
-        price_info_obj: &PriceInfoObject, 
-        clock: &Clock, 
-        ctx: &mut TxContext
-    ): (Reserve<P>, Supply<CToken<P, T>>) {
 
-        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
-        assert!(option::is_some(&price_decimal), EInvalidPrice);
-
-        (
-            Reserve {
-                id: object::new(ctx),
-                coin_type: type_name::get<T>(),
-                config: cell::new(config),
-                mint_decimals: coin::get_decimals(coin_metadata),
-                price_identifier,
-                price: option::extract(&mut price_decimal),
-                smoothed_price: smoothed_price_decimal,
-                price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-                available_amount: 0,
-                ctoken_supply: 0,
-                borrowed_amount: decimal::from(0),
-                cumulative_borrow_rate: decimal::from(1),
-                interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-                unclaimed_spread_fees: decimal::from(0)
-            },
-            balance::create_supply(CToken<P, T> {})
-        )
+    // === Events ===
+    struct InterestUpdateEvent<phantom P> has drop, copy {
+        reserve_id: ID,
+        cumulative_borrow_rate: Decimal,
+        available_amount: u64,
+        borrowed_amount: Decimal,
+        ctoken_supply: u64,
+        timestamp_s: u64
     }
 
+    // === Public-View Functions ===
     public fun coin_type<P>(reserve: &Reserve<P>): TypeName {
         reserve.coin_type
     }
@@ -269,6 +241,50 @@ module suilend::reserve {
         cell::get(&reserve.config)
     }
 
+    public fun calculate_borrow_fee<P>(
+        reserve: &Reserve<P>,
+        borrow_amount: u64
+    ): u64 {
+        ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
+    }
+
+    public fun calculate_liquidation_fee<P>(
+        reserve: &Reserve<P>,
+        withdraw_amount: u64
+    ): u64 {
+        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(config(reserve))))
+    }
+
+    // === Public-Friend Functions
+    public(friend) fun create_reserve<P, T>(
+        config: ReserveConfig, 
+        coin_metadata: &CoinMetadata<T>,
+        price_info_obj: &PriceInfoObject, 
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ): Reserve<P> {
+
+        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
+
+        Reserve {
+            id: object::new(ctx),
+            coin_type: type_name::get<T>(),
+            config: cell::new(config),
+            mint_decimals: coin::get_decimals(coin_metadata),
+            price_identifier,
+            price: option::extract(&mut price_decimal),
+            smoothed_price: smoothed_price_decimal,
+            price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            available_amount: 0,
+            ctoken_supply: 0,
+            borrowed_amount: decimal::from(0),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            unclaimed_spread_fees: decimal::from(0)
+        }
+    }
+
     public(friend) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
@@ -277,7 +293,7 @@ module suilend::reserve {
         reserve_config::destroy(old);
     }
 
-    public fun update_price<P>(
+    public(friend) fun update_price<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
         price_info_obj: &PriceInfoObject
@@ -399,20 +415,6 @@ module suilend::reserve {
         liquidity_amount
     }
 
-    public fun calculate_borrow_fee<P>(
-        reserve: &Reserve<P>,
-        borrow_amount: u64
-    ): u64 {
-        ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
-    }
-
-    public fun calculate_liquidation_fee<P>(
-        reserve: &Reserve<P>,
-        withdraw_amount: u64
-    ): u64 {
-        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(config(reserve))))
-    }
-
     public(friend) fun borrow_liquidity<P>(
         reserve: &mut Reserve<P>, 
         liquidity_amount: u64
@@ -436,6 +438,7 @@ module suilend::reserve {
         reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(repay_amount));
     }
 
+    // === Test Functions ===
     #[test_only]
     fun example_reserve_config(): ReserveConfig {
         let owner = @0x26;

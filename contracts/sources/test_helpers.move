@@ -6,13 +6,11 @@ module suilend::test_helpers {
         Self,
         LendingMarket, 
         LendingMarketOwnerCap, 
-        ObligationOwnerCap
+        ObligationOwnerCap,
+        CToken
     };
     use pyth::price_info::{PriceInfoObject};
     use sui::clock::{Self, Clock};
-    use suilend::reserve::{
-        CToken
-    };
     use suilend::reserve_config::{
         Self,
         ReserveConfig

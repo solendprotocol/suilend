@@ -1,4 +1,5 @@
 module suilend::lending_market {
+    // === Imports ===
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter};
     use sui::event::{Self};
@@ -9,7 +10,7 @@ module suilend::lending_market {
     use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
-    use suilend::reserve::{Self, Reserve, CToken};
+    use suilend::reserve::{Self, Reserve};
     use suilend::reserve_config::{ReserveConfig};
     use std::vector::{Self};
     use suilend::obligation::{Self, Obligation};
@@ -17,18 +18,53 @@ module suilend::lending_market {
     use sui::balance::{Self, Balance, Supply};
     use pyth::price_info::{PriceInfoObject};
 
-    #[test_only]
-    use std::debug::{Self};
-
-    const CURRENT_VERSION: u64 = 1;
-
-    /* errors */
+    // === Errors ===
     const ENotAOneTimeWitness: u64 = 0;
     const EObligationNotHealthy: u64 = 1;
     const EIncorrectVersion: u64 = 2;
     const ETooSmall: u64 = 3;
 
-    /* Events */
+    // === Constants ===
+    const CURRENT_VERSION: u64 = 1;
+
+    // === Structs ===
+    struct LendingMarket<phantom P> has key {
+        id: UID,
+        version: u64,
+
+        reserves: vector<Reserve<P>>,
+        obligations: ObjectTable<ID, Obligation<P>>,
+        balances: Bag,
+
+        // window duration is in seconds
+        rate_limiter: RateLimiter
+    }
+
+    struct LendingMarketOwnerCap<phantom P> has key, store {
+        id: UID,
+        lending_market_id: ID
+    }
+
+    struct ObligationOwnerCap<phantom P> has key, store {
+        id: UID,
+        obligation_id: ID
+    }
+
+    struct Balances<phantom P, phantom T> has store {
+        reserve_id: u64,
+        available_amount: Balance<T>,
+        ctoken_supply: Supply<CToken<P, T>>,
+        deposited_ctokens: Balance<CToken<P, T>>,
+        fees: Balance<T>,
+        ctoken_fees: Balance<CToken<P, T>>,
+    }
+
+    // used to store Balance objects in the Bag
+    struct Name<phantom P> has copy, drop, store {}
+
+    struct CToken<phantom P, phantom T> has drop {}
+
+    // === Events ===
     struct MintEvent<phantom P, phantom T> has drop, copy {
         in_liquidity_amount: u64,
         out_ctoken_amount: u64,
@@ -72,109 +108,7 @@ module suilend::lending_market {
         caller: address,
     }
 
-    struct LendingMarket<phantom P> has key {
-        id: UID,
-        version: u64,
-
-        reserves: vector<Reserve<P>>,
-        obligations: ObjectTable<ID, Obligation<P>>,
-        balances: Bag,
-
-        // window duration is in seconds
-        rate_limiter: RateLimiter
-    }
-
-    struct LendingMarketOwnerCap<phantom P> has key, store {
-        id: UID
-    }
-
-    struct ObligationOwnerCap<phantom P> has key, store {
-        id: UID,
-        obligation_id: ID
-    }
-
-    public fun obligation_id<P>(cap: &ObligationOwnerCap<P>): ID {
-        cap.obligation_id
-    }
-
-    struct Balances<phantom P, phantom T> has store {
-        reserve_id: u64,
-        available_amount: Balance<T>,
-        ctoken_supply: Supply<CToken<P, T>>,
-        deposited_ctokens: Balance<CToken<P, T>>,
-        fees: Balance<T>,
-        ctoken_fees: Balance<CToken<P, T>>,
-    }
-
-    // used to store Balance objects in the Bag
-    struct Name<phantom P> has copy, drop, store {}
-
-    public fun create_lending_market<P: drop>(
-        witness: P, 
-        ctx: &mut TxContext
-    ): LendingMarketOwnerCap<P> {
-        assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
-
-        let lending_market = LendingMarket<P> {
-            id: object::new(ctx),
-            version: CURRENT_VERSION,
-            reserves: vector::empty(),
-            obligations: object_table::new(ctx),
-            balances: bag::new(ctx),
-            rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0)
-        };
-        
-        transfer::share_object(lending_market);
-
-        LendingMarketOwnerCap<P> { id: object::new(ctx) }
-    }
-
-    public fun add_reserve<P, T>(
-        _: &LendingMarketOwnerCap<P>, 
-        lending_market: &mut LendingMarket<P>, 
-        price_info: &PriceInfoObject,
-        config: ReserveConfig,
-        coin_metadata: &CoinMetadata<T>,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-
-        let reserve_id = vector::length(&lending_market.reserves);
-        let (reserve, ctoken_supply) = reserve::create_reserve<P, T>(
-            config, 
-            coin_metadata, 
-            price_info, 
-            clock, 
-            ctx
-        );
-
-        vector::push_back(&mut lending_market.reserves, reserve);
-        bag::add(
-            &mut lending_market.balances, 
-            Name<T> {}, 
-            Balances<P, T> {
-                reserve_id,
-                available_amount: balance::zero(),
-                ctoken_supply,
-                deposited_ctokens: balance::zero(),
-                fees: balance::zero(),
-                ctoken_fees: balance::zero(),
-            }
-        );
-    }
-
-    public fun update_reserve_config<P, T>(
-        _: &LendingMarketOwnerCap<P>, 
-        lending_market: &mut LendingMarket<P>, 
-        config: ReserveConfig,
-    ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-
-        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
-        reserve::update_reserve_config<P>(reserve, config);
-    }
-
+    // === Public-Mutative Functions ===
     public fun refresh_reserve_price<P, T>(
         lending_market: &mut LendingMarket<P>, 
         clock: &Clock,
@@ -192,7 +126,7 @@ module suilend::lending_market {
     ): ObligationOwnerCap<P> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let obligation = obligation::create_obligation<P>(tx_context::sender(ctx), ctx);
+        let obligation = obligation::create_obligation<P>(ctx);
         let cap = ObligationOwnerCap<P> { 
             id: object::new(ctx), 
             obligation_id: object::id(&obligation) 
@@ -493,6 +427,84 @@ module suilend::lending_market {
         balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));
     }
 
+
+    // === Public-View Functions ===
+    public fun obligation_id<P>(cap: &ObligationOwnerCap<P>): ID {
+        cap.obligation_id
+    }
+
+    // === Admin Functions ===
+    public fun create_lending_market<P: drop>(
+        witness: P, 
+        ctx: &mut TxContext
+    ): LendingMarketOwnerCap<P> {
+        assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
+
+        let lending_market = LendingMarket<P> {
+            id: object::new(ctx),
+            version: CURRENT_VERSION,
+            reserves: vector::empty(),
+            obligations: object_table::new(ctx),
+            balances: bag::new(ctx),
+            rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0)
+        };
+        
+        let owner_cap = LendingMarketOwnerCap<P> { 
+            id: object::new(ctx), 
+            lending_market_id: object::id(&lending_market) 
+        };
+
+        transfer::share_object(lending_market);
+
+        owner_cap
+    }
+
+    public fun add_reserve<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        price_info: &PriceInfoObject,
+        config: ReserveConfig,
+        coin_metadata: &CoinMetadata<T>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve_id = vector::length(&lending_market.reserves);
+        let reserve = reserve::create_reserve<P, T>(
+            config, 
+            coin_metadata, 
+            price_info, 
+            clock, 
+            ctx
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
+        bag::add(
+            &mut lending_market.balances, 
+            Name<T> {}, 
+            Balances<P, T> {
+                reserve_id,
+                available_amount: balance::zero(),
+                ctoken_supply: balance::create_supply(CToken<P, T> {}),
+                deposited_ctokens: balance::zero(),
+                fees: balance::zero(),
+                ctoken_fees: balance::zero(),
+            }
+        );
+    }
+
+    public fun update_reserve_config<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        config: ReserveConfig,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
+        reserve::update_reserve_config<P>(reserve, config);
+    }
+
     // TODO: do we want a separate fee collector address? instead of using the owner
     public fun claim_fees<P, T>(
         _: &LendingMarketOwnerCap<P>,
@@ -518,6 +530,8 @@ module suilend::lending_market {
 
     }
 
+
+    // === Private Functions ===
     fun get_reserve<P, T>(
         lending_market: &LendingMarket<P>,
     ): (&Reserve<P>, &Balances<P, T>) {
@@ -550,6 +564,7 @@ module suilend::lending_market {
         (reserve, balances)
     }
 
+    // === Test Functions ===
     #[test_only]
     public fun print_obligation<P>(
         lending_market: &LendingMarket<P>,
@@ -560,7 +575,7 @@ module suilend::lending_market {
             obligation_id
         );
 
-        debug::print(obligation);
+        std::debug::print(obligation);
     }
 
     #[test_only]
@@ -571,7 +586,7 @@ module suilend::lending_market {
 
     #[test_only]
     public fun destroy_lending_market_owner_cap_for_testing<P>(lending_market_owner_cap: LendingMarketOwnerCap<P>) {
-        let LendingMarketOwnerCap { id } = lending_market_owner_cap;
+        let LendingMarketOwnerCap { id, lending_market_id: _ } = lending_market_owner_cap;
         object::delete(id);
     }
 }
