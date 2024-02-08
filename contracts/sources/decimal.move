@@ -1,4 +1,4 @@
-// fixed point decimal representation
+/// fixed point decimal representation. 18 decimal places are kept.
 module suilend::decimal {
     // 1e18
     const WAD: u256 = 1000000000000000000;

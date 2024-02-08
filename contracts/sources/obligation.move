@@ -85,7 +85,8 @@ module suilend::obligation {
     }
 
 
-    // update obligation's health value
+    /// update the obligation's borrowed amounts and health values. this is 
+    /// called by the lending market prior to any borrow, withdraw, or liquidate operation.
     public(friend) fun refresh<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
@@ -149,7 +150,7 @@ module suilend::obligation {
             reserve::compound_interest(borrow_reserve, clock);
             reserve::assert_price_is_fresh(borrow_reserve, clock);
 
-            compound_interest(borrow, borrow_reserve);
+            compound_debt(borrow, borrow_reserve);
 
             let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
             let market_value_upper_bound = reserve::market_value_upper_bound(
@@ -182,6 +183,7 @@ module suilend::obligation {
         obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
     }
 
+    /// Process a deposit action
     public(friend) fun deposit<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
@@ -213,6 +215,7 @@ module suilend::obligation {
         );
     }
 
+    /// Process a borrow action. Makes sure that the obligation is healthy after the borrow.
     public(friend) fun borrow<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
@@ -243,6 +246,7 @@ module suilend::obligation {
         assert!(is_healthy(obligation), EObligationIsNotHealthy);
     }
 
+    /// Process a repay action
     public(friend) fun repay<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
@@ -251,7 +255,7 @@ module suilend::obligation {
         let borrow = find_borrow_mut(obligation, reserve);
 
         let old_borrow_amount = borrow.borrowed_amount;
-        compound_interest(borrow, reserve);
+        compound_debt(borrow, reserve);
         let interest_diff = sub(borrow.borrowed_amount, old_borrow_amount);
 
         borrow.borrowed_amount = sub(borrow.borrowed_amount, repay_amount);
@@ -300,6 +304,7 @@ module suilend::obligation {
 
     }
 
+    /// Process a withdraw action. Makes sure that the obligation is healthy after the withdraw.
     public(friend) fun withdraw<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
@@ -310,6 +315,8 @@ module suilend::obligation {
         assert!(is_healthy(obligation), EObligationIsNotHealthy);
     }
 
+    /// Process a liquidate action.
+    /// Returns the amount of ctokens to withdraw, and the amount of tokens to repay.
     public(friend) fun liquidate<P>(
         obligation: &mut Obligation<P>,
         repay_reserve: &Reserve<P>,
@@ -382,6 +389,7 @@ module suilend::obligation {
     }
 
     // === Private Functions ===
+    /// Withdraw without checking if the obligation is healthy.
     fun withdraw_unchecked<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
@@ -437,7 +445,8 @@ module suilend::obligation {
         vector::borrow_mut(reserves, i)
     }
 
-    fun compound_interest<P>(borrow: &mut Borrow<P>, reserve: &Reserve<P>) {
+    /// Compound the debt on a borrow object
+    fun compound_debt<P>(borrow: &mut Borrow<P>, reserve: &Reserve<P>) {
         let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
 
         let compounded_interest_rate = div(
@@ -452,7 +461,6 @@ module suilend::obligation {
 
         borrow.cumulative_borrow_rate = new_cumulative_borrow_rate;
     }
-
 
     fun find_deposit_index<P>(
         obligation: &Obligation<P>,

@@ -1,3 +1,4 @@
+/// This module contains logic for parsing pyth prices (and eventually switchboard prices)
 module suilend::oracles {
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
