@@ -139,6 +139,8 @@ module suilend::lending_market {
         transfer::share_object(lending_market)
     }
 
+    /// Cache the price from pyth onto the reserve object. this needs to be done for all
+    /// relevant reserves used by an Obligation before any borrow/withdraw/liquidate can be performed.
     public fun refresh_reserve_price<P, T>(
         lending_market: &mut LendingMarket<P>, 
         clock: &Clock,
@@ -261,6 +263,7 @@ module suilend::lending_market {
 
     }
 
+    /// Borrow tokens of type T. A fee is charged.
     public fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         obligation_owner_cap: &ObligationOwnerCap<P>,
@@ -345,10 +348,12 @@ module suilend::lending_market {
         coin::from_balance(balance::split(&mut balances.deposited_ctokens, amount), ctx)
     }
 
+    /// Liquidate an unhealthy obligation. Leftover repay coins are returned.
     public fun liquidate<P, Repay, Withdraw>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
         clock: &Clock,
+        // TODO maybe should just take a mutable reference to the coin here?
         repay_coins: Coin<Repay>,
         ctx: &mut TxContext
     ): (Coin<Repay>, Coin<CToken<P, Withdraw>>) {
@@ -572,43 +577,6 @@ module suilend::lending_market {
         let ObligationOwnerCap { id, obligation_id: _ } = obligation_owner_cap;
         object::delete(id);
     }
-
-    // #[test_only]
-    // fun destroy_balances_for_testing(balances: Balances) {
-    //     let Balances { reserve_id: _, available_amount, ctoken_supply, deposited_ctokens, fees, ctoken_fees } = balances;
-    //     balance::destroy_for_testing(available_amount);
-    //     balance::destroy_supply(ctoken_supply);
-    //     balance::destroy_for_testing(deposited_ctokens);
-    //     balance::destroy_for_testing(fees);
-    //     balance::destroy_for_testing(ctoken_fees);
-    // }
-
-    // #[test_only]
-    // public fun destroy_lending_market_for_testing<P>(
-    //     lending_market: LendingMarket<P>, 
-    //     obg_caps: vector<ObligationOwnerCap<P>>
-    // ) {
-    //     let LendingMarket { id, version: _, reserves, obligations, balances, rate_limiter } = lending_market;
-
-    //     while (vector::length(&reserves) > 0) {
-    //         let reserve = vector::pop_back(&mut reserves);
-    //         reserve::destroy_for_testing(reserve);
-    //     };
-    //     vector::destroy_empty(reserves);
-
-    //     while (vector::length(&obg_caps) > 0) {
-    //         let obg_cap = vector::pop_back(&mut obg_caps);
-
-    //         let obg = object_table::remove(&mut obligations, obg_cap.obligation_id);
-
-    //         obligation::destroy_for_testing(obg);
-    //         destroy_for_testing(obg_cap);
-    //     };
-
-    //     rate_limiter::destroy(rate_limiter);
-
-    //     object::delete(id);
-    // }
 
     #[test_only]
     public fun destroy_lending_market_owner_cap_for_testing<P>(lending_market_owner_cap: LendingMarketOwnerCap<P>) {

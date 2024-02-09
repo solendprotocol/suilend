@@ -42,7 +42,7 @@ module suilend::reserve {
 
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
-    // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token_amount
+    // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token amount
     // can never be withdrawn or borrowed.
     const MIN_AVAILABLE_AMOUNT: u64 = 100; 
 
@@ -70,7 +70,6 @@ module suilend::reserve {
 
         unclaimed_spread_fees: Decimal
     }
-
 
     // === Events ===
     struct InterestUpdateEvent<phantom P> has drop, copy {
