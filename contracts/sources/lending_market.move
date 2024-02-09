@@ -718,7 +718,7 @@ module suilend::lending_market {
     }
 
     #[test]
-    public fun test_mint() {
+    public fun test_deposit() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
 
@@ -770,13 +770,13 @@ module suilend::lending_market {
         );
 
         let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
-
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
         );
+
         assert!(coin::value(&ctokens) == 100 * 1_000_000, 0);
 
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(

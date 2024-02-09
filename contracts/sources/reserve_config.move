@@ -1,9 +1,10 @@
+/// parameters for a Reserve.
 module suilend::reserve_config {
     use std::vector::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
-    use std::option::{Option, Self};
     use sui::object::{Self, UID};
     use sui::tx_context::{TxContext};
+    use sui::bag::{Self, Bag};
 
     #[test_only]
     use sui::test_scenario::{Self};
@@ -32,18 +33,8 @@ module suilend::reserve_config {
         liquidation_fee_bps: u64,
     }
 
-    struct ReserveConfigBuilder has store, drop {
-        open_ltv_pct: Option<u8>,
-        close_ltv_pct: Option<u8>,
-        borrow_weight_bps: Option<u64>,
-        deposit_limit: Option<u64>,
-        borrow_limit: Option<u64>,
-        liquidation_bonus_pct: Option<u8>,
-        interest_rate_utils: Option<vector<u8>>,
-        interest_rate_aprs: Option<vector<u64>>,
-        borrow_fee_bps: Option<u64>,
-        spread_fee_bps: Option<u64>,
-        liquidation_fee_bps: Option<u64>,
+    struct ReserveConfigBuilder has store {
+        fields: Bag
     }
 
     public fun create_reserve_config(
@@ -204,8 +195,176 @@ module suilend::reserve_config {
         object::delete(id);
     }
 
+    public fun from(config: &ReserveConfig, ctx: &mut TxContext): ReserveConfigBuilder {
+        let builder = ReserveConfigBuilder { fields: bag::new(ctx) };
+        set_open_ltv_pct(&mut builder, config.open_ltv_pct);
+        set_close_ltv_pct(&mut builder, config.close_ltv_pct);
+        set_borrow_weight_bps(&mut builder, config.borrow_weight_bps);
+        set_deposit_limit(&mut builder, config.deposit_limit);
+        set_borrow_limit(&mut builder, config.borrow_limit);
+        set_liquidation_bonus_pct(&mut builder, config.liquidation_bonus_pct);
+
+        set_interest_rate_utils(&mut builder, config.interest_rate_utils);
+        set_interest_rate_aprs(&mut builder, config.interest_rate_aprs);
+
+        set_borrow_fee_bps(&mut builder, config.borrow_fee_bps);
+        set_spread_fee_bps(&mut builder, config.spread_fee_bps);
+        set_liquidation_fee_bps(&mut builder, config.liquidation_fee_bps);
+
+        builder
+    }
+    
+    fun set<K: copy + drop + store, V: store + drop>(builder : &mut ReserveConfigBuilder, field: K, value: V) {
+        if (bag::contains(&builder.fields, field)) {
+            let val: &mut V = bag::borrow_mut(&mut builder.fields, field);
+            *val = value;
+        } else {
+            bag::add(&mut builder.fields, field, value);
+        }
+    }
+
+    public fun set_open_ltv_pct(builder: &mut ReserveConfigBuilder, open_ltv_pct: u8) {
+        set(builder, b"open_ltv_pct", open_ltv_pct);
+    }
+
+    public fun set_close_ltv_pct(builder: &mut ReserveConfigBuilder, close_ltv_pct: u8) {
+        set(builder, b"close_ltv_pct", close_ltv_pct);
+    }
+
+    public fun set_borrow_weight_bps(builder: &mut ReserveConfigBuilder, borrow_weight_bps: u64) {
+        set(builder, b"borrow_weight_bps", borrow_weight_bps);
+    }
+
+    public fun set_deposit_limit(builder: &mut ReserveConfigBuilder, deposit_limit: u64) {
+        set(builder, b"deposit_limit", deposit_limit);
+    }
+
+    public fun set_borrow_limit(builder: &mut ReserveConfigBuilder, borrow_limit: u64) {
+        set(builder, b"borrow_limit", borrow_limit);
+    }
+
+    public fun set_liquidation_bonus_pct(builder: &mut ReserveConfigBuilder, liquidation_bonus_pct: u8) {
+        set(builder, b"liquidation_bonus_pct", liquidation_bonus_pct);
+    }
+
+    public fun set_interest_rate_utils(builder: &mut ReserveConfigBuilder, interest_rate_utils: vector<u8>) {
+        set(builder, b"interest_rate_utils", interest_rate_utils);
+    }
+
+    public fun set_interest_rate_aprs(builder: &mut ReserveConfigBuilder, interest_rate_aprs: vector<u64>) {
+        set(builder, b"interest_rate_aprs", interest_rate_aprs);
+    }
+
+    public fun set_borrow_fee_bps(builder: &mut ReserveConfigBuilder, borrow_fee_bps: u64) {
+        set(builder, b"borrow_fee_bps", borrow_fee_bps);
+    }
+
+    public fun set_spread_fee_bps(builder: &mut ReserveConfigBuilder, spread_fee_bps: u64) {
+        set(builder, b"spread_fee_bps", spread_fee_bps);
+    }
+
+    public fun set_liquidation_fee_bps(builder: &mut ReserveConfigBuilder, liquidation_fee_bps: u64) {
+        set(builder, b"liquidation_fee_bps", liquidation_fee_bps);
+    }
+
+    public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
+        let config = create_reserve_config(
+            bag::remove(&mut builder.fields, b"open_ltv_pct"),
+            bag::remove(&mut builder.fields, b"close_ltv_pct"),
+            bag::remove(&mut builder.fields, b"borrow_weight_bps"),
+            bag::remove(&mut builder.fields, b"deposit_limit"),
+            bag::remove(&mut builder.fields, b"borrow_limit"),
+            bag::remove(&mut builder.fields, b"liquidation_bonus_pct"),
+            bag::remove(&mut builder.fields, b"borrow_fee_bps"),
+            bag::remove(&mut builder.fields, b"spread_fee_bps"),
+            bag::remove(&mut builder.fields, b"liquidation_fee_bps"),
+            bag::remove(&mut builder.fields, b"interest_rate_utils"),
+            bag::remove(&mut builder.fields, b"interest_rate_aprs"),
+            tx_context
+        );
+
+        let ReserveConfigBuilder { fields } = builder;
+        bag::destroy_empty(fields);
+        config
+    }
+
 
     // === Tests ==
+    #[test_only]
+    public fun default_reserve_config(): ReserveConfig {
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        
+        let config = create_reserve_config(
+            // open ltv pct
+            50,
+            // close ltv pct
+            80,
+            // borrow weight bps
+            10_000,
+            // deposit_limit
+            18_446_744_073_709_551_615u64,
+            // borrow_limit
+            18_446_744_073_709_551_615u64,
+            // liquidation bonus pct
+            0,
+            // borrow fee bps
+            0,
+            // spread fee bps
+            0,
+            // liquidation fee bps
+            0,
+            // utils
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 100);
+                v
+            },
+            // aprs
+            {
+                let v = vector::empty();
+                vector::push_back(&mut v, 0);
+                vector::push_back(&mut v, 1);
+                v
+            },
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::end(scenario);
+
+        config
+    }
+
+    // TODO tests for validate_utils_and_aprs
+
+    #[test]
+    fun test_calculate_apr() {
+        let config = example_reserve_config();
+        config.interest_rate_utils = {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 10);
+            vector::push_back(&mut v, 100);
+            v
+        };
+        config.interest_rate_aprs = {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 100);
+            vector::push_back(&mut v, 1000);
+            v
+        };
+
+        assert!(calculate_apr(&config, decimal::from_percent(0)) == decimal::from(0), 0);
+        assert!(calculate_apr(&config, decimal::from_percent(5)) == decimal::from_percent(50), 0);
+        assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100), 0);
+        assert!(calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550), 0);
+        assert!(calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000), 0);
+
+        destroy(config);
+    }
+
     #[test]
     fun test_valid_reserve_config() {
 
@@ -332,125 +491,4 @@ module suilend::reserve_config {
         config
     }
 
-    public fun from(config: &ReserveConfig): ReserveConfigBuilder {
-        ReserveConfigBuilder {
-            open_ltv_pct: option::some(config.open_ltv_pct),
-            close_ltv_pct: option::some(config.close_ltv_pct),
-            borrow_weight_bps: option::some(config.borrow_weight_bps),
-            deposit_limit: option::some(config.deposit_limit),
-            borrow_limit: option::some(config.borrow_limit),
-            liquidation_bonus_pct: option::some(config.liquidation_bonus_pct),
-            interest_rate_utils: option::some(config.interest_rate_utils),
-            interest_rate_aprs: option::some(config.interest_rate_aprs),
-            borrow_fee_bps: option::some(config.borrow_fee_bps),
-            spread_fee_bps: option::some(config.spread_fee_bps),
-            liquidation_fee_bps: option::some(config.liquidation_fee_bps),
-        }
-    }
-
-    public fun set_open_ltv_pct(builder: &mut ReserveConfigBuilder, open_ltv_pct: u8) {
-        builder.open_ltv_pct = option::some(open_ltv_pct);
-    }
-
-    public fun set_close_ltv_pct(builder: &mut ReserveConfigBuilder, close_ltv_pct: u8) {
-        builder.close_ltv_pct = option::some(close_ltv_pct);
-    }
-
-    public fun set_borrow_weight_bps(builder: &mut ReserveConfigBuilder, borrow_weight_bps: u64) {
-        builder.borrow_weight_bps = option::some(borrow_weight_bps);
-    }
-
-    public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
-        create_reserve_config(
-            option::extract(&mut builder.open_ltv_pct),
-            option::extract(&mut builder.close_ltv_pct),
-            option::extract(&mut builder.borrow_weight_bps),
-            option::extract(&mut builder.deposit_limit),
-            option::extract(&mut builder.borrow_limit),
-            option::extract(&mut builder.liquidation_bonus_pct),
-            option::extract(&mut builder.borrow_fee_bps),
-            option::extract(&mut builder.spread_fee_bps),
-            option::extract(&mut builder.liquidation_fee_bps),
-            option::extract(&mut builder.interest_rate_utils),
-            option::extract(&mut builder.interest_rate_aprs),
-            tx_context
-        )
-    }
-
-
-
-    #[test_only]
-    public fun default_reserve_config(): ReserveConfig {
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-        
-        let config = create_reserve_config(
-            // open ltv pct
-            50,
-            // close ltv pct
-            80,
-            // borrow weight bps
-            10_000,
-            // deposit_limit
-            18_446_744_073_709_551_615u64,
-            // borrow_limit
-            18_446_744_073_709_551_615u64,
-            // liquidation bonus pct
-            0,
-            // borrow fee bps
-            0,
-            // spread fee bps
-            0,
-            // liquidation fee bps
-            0,
-            // utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 1);
-                v
-            },
-            test_scenario::ctx(&mut scenario)
-        );
-
-        test_scenario::end(scenario);
-
-        config
-    }
-
-    // TODO tests for validate_utils_and_aprs
-
-    #[test]
-    fun test_calculate_apr() {
-        let config = example_reserve_config();
-        config.interest_rate_utils = {
-            let v = vector::empty();
-            vector::push_back(&mut v, 0);
-            vector::push_back(&mut v, 10);
-            vector::push_back(&mut v, 100);
-            v
-        };
-        config.interest_rate_aprs = {
-            let v = vector::empty();
-            vector::push_back(&mut v, 0);
-            vector::push_back(&mut v, 100);
-            vector::push_back(&mut v, 1000);
-            v
-        };
-
-        assert!(calculate_apr(&config, decimal::from_percent(0)) == decimal::from(0), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(5)) == decimal::from_percent(50), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000), 0);
-
-        destroy(config);
-    }
 }

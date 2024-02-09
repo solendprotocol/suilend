@@ -13,7 +13,6 @@ module suilend::reserve {
     use sui::math::{Self};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
-    use std::vector::{Self};
     use suilend::reserve_config::{
         Self, 
         ReserveConfig, 
@@ -27,6 +26,9 @@ module suilend::reserve {
 
     #[test_only]
     use sui::test_scenario::{Self};
+
+    #[test_only]
+    use std::vector::{Self};
 
     // === Friends ===
     friend suilend::lending_market;

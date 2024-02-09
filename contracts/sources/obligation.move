@@ -646,7 +646,7 @@ module suilend::obligation {
     #[test_only]
     struct TEST_ETH {}
 
-    // use std::debug;
+    #[test_only]
     use suilend::reserve_config::{Self};
 
     #[test_only]
@@ -1431,7 +1431,7 @@ module suilend::obligation {
         borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 50 * 1_000_000);
         borrow<TEST_MARKET>(&mut obligation, &usdt_reserve, 50 * 1_000_000);
 
-        let builder = reserve_config::from(reserve::config(&sui_reserve));
+        let builder = reserve_config::from(reserve::config(&sui_reserve), test_scenario::ctx(&mut scenario));
         reserve_config::set_open_ltv_pct(&mut builder, 0);
         reserve_config::set_close_ltv_pct(&mut builder, 0);
         let config = reserve_config::build(builder, test_scenario::ctx(&mut scenario));
@@ -1510,14 +1510,14 @@ module suilend::obligation {
         deposit<TEST_MARKET>(&mut obligation, &eth_reserve, 2 * 100_000_000);
         borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 100 * 1_000_000);
 
-        let builder = reserve_config::from(reserve::config(&eth_reserve));
+        let builder = reserve_config::from(reserve::config(&eth_reserve), test_scenario::ctx(&mut scenario));
         reserve_config::set_open_ltv_pct(&mut builder, 0);
         reserve_config::set_close_ltv_pct(&mut builder, 0);
 
         let config = reserve_config::build(builder, test_scenario::ctx(&mut scenario));
         reserve::update_reserve_config(&mut eth_reserve, config);
 
-        let builder = reserve_config::from(reserve::config(&sui_reserve));
+        let builder = reserve_config::from(reserve::config(&sui_reserve), test_scenario::ctx(&mut scenario));
         reserve_config::set_open_ltv_pct(&mut builder, 0);
         reserve_config::set_close_ltv_pct(&mut builder, 0);
 
