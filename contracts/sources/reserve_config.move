@@ -392,9 +392,9 @@ module suilend::reserve_config {
             // borrow weight bps
             10_000,
             // deposit_limit
-            0,
+            18_446_744_073_709_551_615u64,
             // borrow_limit
-            0,
+            18_446_744_073_709_551_615u64,
             // liquidation bonus pct
             0,
             // borrow fee bps

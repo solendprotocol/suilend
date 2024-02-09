@@ -7,7 +7,8 @@ module suilend::launch {
     struct LAUNCH has drop {}
 
     fun init(witness: LAUNCH, ctx: &mut TxContext) {
-        let cap = lending_market::create_lending_market(witness, ctx);
+        let (cap, lending_market) = lending_market::create_lending_market(witness, ctx);
+        lending_market::share_lending_market(&cap, lending_market);
         transfer::public_transfer(cap, tx_context::sender(ctx));
     }
     

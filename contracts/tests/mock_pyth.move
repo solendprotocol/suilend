@@ -8,33 +8,23 @@ module suilend::mock_pyth {
     use sui::tx_context::{TxContext};
     use std::vector::{Self};
     use sui::object::{Self, UID};
+    use sui::bag::{Self, Bag};
 
-    struct State has key {
+    struct PriceState has key {
         id: UID,
-        num_feeds: u8
+        price_objs: Bag
     }
 
-    public fun init_state(ctx: &mut TxContext): State {
-        State {
+    public fun init_state(ctx: &mut TxContext): PriceState {
+        PriceState {
             id: object::new(ctx),
-            num_feeds: 0
+            price_objs: bag::new(ctx)
         }
     }
 
-    #[test_only]
-    public fun destroy_state(state: State) {
-        let State { id, num_feeds: _ } = state;
-        object::delete(id);
-    }
-
-    public fun create_price_info_obj(
-        state: &mut State,
-        ctx: &mut TxContext
-    ): PriceInfoObject {
-        state.num_feeds = state.num_feeds + 1;
-
+    public fun register<T>(state: &mut PriceState, ctx: &mut TxContext) {
         let v = vector::empty<u8>();
-        vector::push_back(&mut v, state.num_feeds);
+        vector::push_back(&mut v, (bag::length(&state.price_objs) as u8));
 
         let i = 1;
         while (i < 32) {
@@ -43,7 +33,7 @@ module suilend::mock_pyth {
         };
 
 
-        price_info::new_price_info_object_for_testing(
+        let price_info_obj = price_info::new_price_info_object_for_testing(
             price_info::new_price_info(
                 0,
                 0,
@@ -64,13 +54,17 @@ module suilend::mock_pyth {
                 )
             ),
             ctx
-        )
+        );
+
+        bag::add(&mut state.price_objs, std::type_name::get<T>(), price_info_obj);
     }
 
-    public fun update_price(
-        price_info_obj: &mut PriceInfoObject,
-        price: Price
-    ) {
+    public fun get_price_obj<T>(state: &PriceState): &PriceInfoObject {
+        bag::borrow(&state.price_objs, std::type_name::get<T>())
+    }
+
+    public fun update_price<T>(state: &mut PriceState, price: Price) {
+        let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::get<T>());
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
 
         price_info::update_price_info_object_for_testing(
@@ -87,10 +81,4 @@ module suilend::mock_pyth {
         );
         
     }
-
-    public fun destroy(state: State) {
-        let State { id, num_feeds: _ } = state;
-        object::delete(id);
-    }
-
 }

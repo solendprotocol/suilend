@@ -18,15 +18,6 @@ module suilend::test_helpers {
     use sui::coin::{Coin, CoinMetadata};
     use sui::object::{ID};
 
-    public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address): LendingMarketOwnerCap<P> {
-        test_scenario::next_tx(scenario, owner);
-
-        lending_market::create_lending_market<P>(
-            witness,
-            test_scenario::ctx(scenario)
-        )
-    }
-
     public fun create_reserve_config(
         scenario: &mut Scenario, 
         owner: address,

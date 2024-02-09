@@ -580,9 +580,6 @@ module suilend::obligation {
     }
 
     #[test_only]
-    use suilend::reserve_config::{ReserveConfig};
-
-    #[test_only]
     public fun destroy_for_testing<P>(obligation: Obligation<P>) {
         let Obligation {
             id,
@@ -634,20 +631,6 @@ module suilend::obligation {
     }
 
     /* == Tests */
-    #[test_only]
-    struct ReserveArgs {
-        id: u64,
-        config: ReserveConfig,
-        mint_decimals: u8,
-        price: Decimal,
-        price_last_update_timestamp_s: u64,
-        available_amount: u64,
-        ctoken_supply: u64,
-        borrowed_amount: Decimal,
-        cumulative_borrow_rate: Decimal,
-        interest_last_update_timestamp_s: u64,
-    }
-
     #[test_only]
     struct TEST_MARKET {}
 

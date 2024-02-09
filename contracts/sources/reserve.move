@@ -1,7 +1,6 @@
 module suilend::reserve {
     // === Imports ===
     use std::type_name::{Self, TypeName};
-    use sui::balance::{Self, Supply};
     use sui::tx_context::{TxContext};
     use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
