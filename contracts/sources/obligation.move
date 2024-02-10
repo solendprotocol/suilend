@@ -1,7 +1,7 @@
 /// This module keeps track of a users deposits and borrows within a specific lending market.
 module suilend::obligation {
     // === Imports ===
-    use std::type_name::{TypeName};
+    use std::type_name::{TypeName, Self};
     use sui::object::{Self, UID, ID};
     use std::vector::{Self};
     use sui::tx_context::{TxContext};
@@ -380,6 +380,35 @@ module suilend::obligation {
     }
 
     // === Public-View Functions
+    public fun deposited_ctoken_amount<P, T>(obligation: &Obligation<P>): u64 {
+        let i = 0;
+        while (i < vector::length(&obligation.deposits)) {
+            let deposit = vector::borrow(&obligation.deposits, i);
+            if (deposit.coin_type == type_name::get<T>()) {
+                return deposit.deposited_ctoken_amount
+            };
+
+            i = i + 1;
+        };
+
+        0
+    }
+
+    public fun borrowed_amount<P, T>(obligation: &Obligation<P>): Decimal {
+        let i = 0;
+        while (i < vector::length(&obligation.borrows)) {
+            let borrow = vector::borrow(&obligation.borrows, i);
+            if (borrow.coin_type == type_name::get<T>()) {
+                return borrow.borrowed_amount
+            };
+
+            i = i + 1;
+        };
+
+        decimal::from(0)
+    }
+
+
     public fun is_healthy<P>(obligation: &Obligation<P>): bool {
         le(obligation.weighted_borrowed_value_upper_bound_usd, obligation.allowed_borrow_value_usd)
     }
@@ -420,7 +449,6 @@ module suilend::obligation {
             )
         );
     }
-
 
     // TODO: this is an O(n) operation, which might make obligation refreshes expensive. 
     // is this ok? need to measure

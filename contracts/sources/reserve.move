@@ -85,6 +85,14 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+    public fun available_amount<P>(reserve: &Reserve<P>): u64 {
+        reserve.available_amount
+    }
+
+    public fun borrowed_amount<P>(reserve: &Reserve<P>): Decimal {
+        reserve.borrowed_amount
+    }
+
     public fun coin_type<P>(reserve: &Reserve<P>): TypeName {
         reserve.coin_type
     }
