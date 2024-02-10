@@ -21,7 +21,8 @@ module suilend::reserve {
         borrow_limit, 
         borrow_fee,
         liquidation_fee,
-        spread_fee
+        spread_fee,
+        liquidation_bonus
     };
 
     #[test_only]
@@ -252,8 +253,13 @@ module suilend::reserve {
         reserve: &Reserve<P>,
         withdraw_amount: u64
     ): u64 {
-        // FIXME: this is wrong
-        ceil(mul(decimal::from(withdraw_amount), liquidation_fee(config(reserve))))
+        let bonus = liquidation_bonus(config(reserve));
+        let take_rate = div(
+            mul(bonus, liquidation_fee(config(reserve))),
+            add(decimal::from(1), bonus)
+        );
+
+        ceil(mul(take_rate, decimal::from(withdraw_amount)))
     }
 
     // === Public-Friend Functions

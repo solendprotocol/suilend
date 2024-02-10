@@ -307,13 +307,13 @@ module suilend::reserve_config {
             // borrow_limit
             18_446_744_073_709_551_615u64,
             // liquidation bonus pct
-            0,
+            10,
             // borrow fee bps
             0,
             // spread fee bps
             0,
             // liquidation fee bps
-            0,
+            5000,
             // utils
             {
                 let v = vector::empty();
