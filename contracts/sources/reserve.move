@@ -252,6 +252,7 @@ module suilend::reserve {
         reserve: &Reserve<P>,
         withdraw_amount: u64
     ): u64 {
+        // FIXME: this is wrong
         ceil(mul(decimal::from(withdraw_amount), liquidation_fee(config(reserve))))
     }
 
@@ -298,11 +299,12 @@ module suilend::reserve {
         clock: &Clock,
         price_info_obj: &PriceInfoObject
     ) {
-        let (price_decimal, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        let (price_decimal, ema_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
 
         reserve.price = option::extract(&mut price_decimal);
+        reserve.smoothed_price = ema_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 

@@ -9,6 +9,7 @@ module suilend::mock_pyth {
     use std::vector::{Self};
     use sui::object::{Self, UID};
     use sui::bag::{Self, Bag};
+    use sui::clock::{Clock, Self};
 
     struct PriceState has key {
         id: UID,
@@ -63,9 +64,16 @@ module suilend::mock_pyth {
         bag::borrow(&state.price_objs, std::type_name::get<T>())
     }
 
-    public fun update_price<T>(state: &mut PriceState, price: Price) {
+    public fun update_price<T>(state: &mut PriceState, price: u64, expo: u8, clock: &Clock) {
         let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::get<T>());
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
+
+        let price = price::new(
+            i64::new(price, false),
+            0,
+            i64::new((expo as u64), false),
+            clock::timestamp_ms(clock) / 1000
+        );
 
         price_info::update_price_info_object_for_testing(
             price_info_obj,

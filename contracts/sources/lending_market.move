@@ -468,6 +468,15 @@ module suilend::lending_market {
         cap.obligation_id
     }
 
+    public fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
+        let balances: &Balances<P, T> = bag::borrow(&lending_market.balances, Name<T> {});
+        vector::borrow(&lending_market.reserves, balances.reserve_id)
+    }
+
+    public fun obligation<P>(lending_market: &LendingMarket<P>, obligation_id: ID): &Obligation<P> {
+        object_table::borrow(&lending_market.obligations, obligation_id)
+    }
+
     // === Admin Functions ===
     public fun add_reserve<P, T>(
         _: &LendingMarketOwnerCap<P>, 
@@ -539,7 +548,6 @@ module suilend::lending_market {
         )
 
     }
-
 
     // === Private Functions ===
     fun get_reserve_mut<P, T>(
@@ -761,9 +769,57 @@ module suilend::lending_market {
     public fun test_borrow() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self};
 
         let State { scenario, clock, owner_cap, lending_market, prices } = setup();
 
+        // add liquidity to reserves
+        {
+            let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
+            let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+                &mut lending_market,
+                &clock,
+                coins,
+                test_scenario::ctx(&mut scenario)
+            );
+            test_utils::destroy(ctokens);
+
+            let coins = coin::mint_for_testing<TEST_SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
+            let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_SUI>(
+                &mut lending_market,
+                &clock,
+                coins,
+                test_scenario::ctx(&mut scenario)
+            );
+            test_utils::destroy(ctokens);
+        };
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        let usdc_reserve = reserve<LENDING_MARKET, TEST_USDC>(&lending_market);
+
+        update_reserve_config<LENDING_MARKET, TEST_USDC>(
+            &owner_cap,
+            &mut lending_market,
+            {
+                let builder = reserve_config::from(
+                    reserve::config<LENDING_MARKET>(usdc_reserve), 
+                    test_scenario::ctx(&mut scenario)
+                );
+
+                reserve_config::set_open_ltv_pct(&mut builder, 50);
+                reserve_config::set_close_ltv_pct(&mut builder, 50);
+                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+            }
+        );
+
+        // create obligation
         let obligation_owner_cap = create_obligation(
             &mut lending_market,
             test_scenario::ctx(&mut scenario)
@@ -776,9 +832,6 @@ module suilend::lending_market {
             coins,
             test_scenario::ctx(&mut scenario)
         );
-
-        assert!(coin::value(&ctokens) == 100 * 1_000_000, 0);
-
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             &obligation_owner_cap,
@@ -786,9 +839,30 @@ module suilend::lending_market {
             test_scenario::ctx(&mut scenario)
         );
 
+        refresh_reserve_price<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices)
+        );
+        refresh_reserve_price<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
 
-        // TODO test state
+        std::debug::print(&lending_market);
+        let sui = borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            &obligation_owner_cap,
+            &clock,
+            5 * 1_000_000,
+            test_scenario::ctx(&mut scenario)
+        );
 
+        assert!(coin::value(&sui) == 5 * 1_000_000, 0);
+        std::debug::print(obligation(&lending_market, obligation_id(&obligation_owner_cap)));
+
+        test_utils::destroy(sui);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
