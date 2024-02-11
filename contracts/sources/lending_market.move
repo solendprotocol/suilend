@@ -12,11 +12,11 @@ module suilend::lending_market {
     use sui::transfer;
     use suilend::reserve::{Self, Reserve};
     use suilend::reserve_config::{ReserveConfig};
-    use std::vector::{Self};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self, Balance, Supply};
     use pyth::price_info::{PriceInfoObject};
+    use std::type_name::{Self, TypeName};
 
     // === Errors ===
     const ENotAOneTimeWitness: u64 = 0;
@@ -31,7 +31,7 @@ module suilend::lending_market {
         id: UID,
         version: u64,
 
-        reserves: vector<Reserve<P>>,
+        reserves: ObjectTable<TypeName, Reserve<P>>,
         obligations: ObjectTable<ID, Obligation<P>>,
         balances: Bag,
 
@@ -50,7 +50,6 @@ module suilend::lending_market {
     }
 
     struct Balances<phantom P, phantom T> has store {
-        reserve_id: u64,
         available_amount: Balance<T>,
         ctoken_supply: Supply<CToken<P, T>>,
         deposited_ctokens: Balance<CToken<P, T>>,
@@ -117,7 +116,7 @@ module suilend::lending_market {
         let lending_market = LendingMarket<P> {
             id: object::new(ctx),
             version: CURRENT_VERSION,
-            reserves: vector::empty(),
+            reserves: object_table::new(ctx),
             obligations: object_table::new(ctx),
             balances: bag::new(ctx),
             rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0)
@@ -148,7 +147,7 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
         reserve::update_price<P>(reserve, clock, price_info);
     }
 
@@ -241,7 +240,7 @@ module suilend::lending_market {
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = vector::borrow(&lending_market.reserves, balances.reserve_id);
+        let reserve = object_table::borrow(&lending_market.reserves, type_name::get<T>());
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
@@ -281,7 +280,7 @@ module suilend::lending_market {
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
@@ -328,7 +327,7 @@ module suilend::lending_market {
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         obligation::withdraw<P>(obligation, reserve, amount);
 
@@ -367,18 +366,8 @@ module suilend::lending_market {
 
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let repay_balances: &Balances<P, Repay> = bag::borrow(
-            &lending_market.balances, 
-            Name<Repay> {}
-        );
-        let repay_reserve = vector::borrow(&lending_market.reserves, repay_balances.reserve_id);
-
-        let withdraw_balances: &Balances<P, Withdraw> = bag::borrow(
-            &lending_market.balances, 
-            Name<Withdraw> {}
-        );
-        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_balances.reserve_id);
-
+        let repay_reserve = object_table::borrow(&mut lending_market.reserves, type_name::get<Repay>());
+        let withdraw_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Withdraw>());
 
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation, 
@@ -442,7 +431,7 @@ module suilend::lending_market {
             obligation_id
         );
         let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, balances.reserve_id);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         reserve::compound_interest(reserve, clock);
         reserve::repay_liquidity<P>(reserve, coin::value(&repay_coins));
@@ -469,8 +458,7 @@ module suilend::lending_market {
     }
 
     public fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
-        let balances: &Balances<P, T> = bag::borrow(&lending_market.balances, Name<T> {});
-        vector::borrow(&lending_market.reserves, balances.reserve_id)
+        object_table::borrow(&lending_market.reserves, type_name::get<T>())
     }
 
     public fun obligation<P>(lending_market: &LendingMarket<P>, obligation_id: ID): &Obligation<P> {
@@ -489,7 +477,6 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let reserve_id = vector::length(&lending_market.reserves);
         let reserve = reserve::create_reserve<P, T>(
             config, 
             coin_metadata, 
@@ -498,12 +485,11 @@ module suilend::lending_market {
             ctx
         );
 
-        vector::push_back(&mut lending_market.reserves, reserve);
+        object_table::add(&mut lending_market.reserves, type_name::get<T>(), reserve);
         bag::add(
             &mut lending_market.balances, 
             Name<T> {}, 
             Balances<P, T> {
-                reserve_id,
                 available_amount: balance::zero(),
                 ctoken_supply: balance::create_supply(CToken<P, T> {}),
                 deposited_ctokens: balance::zero(),
@@ -558,9 +544,9 @@ module suilend::lending_market {
             Name<T> {}
         );
 
-        let reserve = vector::borrow_mut(
+        let reserve = object_table::borrow_mut(
             &mut lending_market.reserves, 
-            balances.reserve_id
+            type_name::get<T>()
         );
 
         (reserve, balances)
