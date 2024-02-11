@@ -2,7 +2,6 @@
 module suilend::reserve_config {
     use std::vector::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
-    use sui::object::{Self, UID};
     use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
 
@@ -12,9 +11,7 @@ module suilend::reserve_config {
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
 
-    struct ReserveConfig has key, store {
-        id: UID,
-
+    struct ReserveConfig has store {
         // risk params
         open_ltv_pct: u8,
         close_ltv_pct: u8,
@@ -31,6 +28,8 @@ module suilend::reserve_config {
         borrow_fee_bps: u64,
         spread_fee_bps: u64,
         liquidation_fee_bps: u64,
+
+        additional_fields: Bag
     }
 
     struct ReserveConfigBuilder has store {
@@ -52,7 +51,6 @@ module suilend::reserve_config {
         ctx: &mut TxContext
     ): ReserveConfig {
         let config = ReserveConfig {
-            id: object::new(ctx),
             open_ltv_pct,
             close_ltv_pct,
             borrow_weight_bps,
@@ -64,6 +62,7 @@ module suilend::reserve_config {
             borrow_fee_bps,
             spread_fee_bps,
             liquidation_fee_bps,
+            additional_fields: bag::new(ctx)
         };
 
         validate_reserve_config(&config);
@@ -178,7 +177,6 @@ module suilend::reserve_config {
 
     public fun destroy(config: ReserveConfig) {
         let ReserveConfig { 
-            id, 
             open_ltv_pct: _,
             close_ltv_pct: _,
             borrow_weight_bps: _,
@@ -190,9 +188,10 @@ module suilend::reserve_config {
             borrow_fee_bps: _,
             spread_fee_bps: _,
             liquidation_fee_bps: _,
+            additional_fields
         } = config;
 
-        object::delete(id);
+        bag::destroy_empty(additional_fields);
     }
 
     public fun from(config: &ReserveConfig, ctx: &mut TxContext): ReserveConfigBuilder {

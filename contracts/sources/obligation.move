@@ -451,29 +451,6 @@ module suilend::obligation {
         );
     }
 
-    // TODO: this is an O(n) operation, which might make obligation refreshes expensive. 
-    // is this ok? need to measure
-    fun find_reserve_index_by_id<P>(reserves: &vector<Reserve<P>>, id: ID): u64 {
-        let i = 0;
-        while (i < vector::length(reserves)) {
-            let reserve = vector::borrow(reserves, i);
-            if (object::id(reserve) == id) {
-                return i
-            };
-
-            i = i + 1;
-        };
-
-        return i
-    }
-
-    fun find_reserve_by_id<P>(reserves: &mut vector<Reserve<P>>, id: ID): &mut Reserve<P> {
-        let i = find_reserve_index_by_id(reserves, id);
-        assert!(i < vector::length(reserves), 0);
-
-        vector::borrow_mut(reserves, i)
-    }
-
     /// Compound the debt on a borrow object
     fun compound_debt<P>(borrow: &mut Borrow<P>, reserve: &Reserve<P>) {
         let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);

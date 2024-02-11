@@ -366,7 +366,7 @@ module suilend::lending_market {
 
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let repay_reserve = object_table::borrow(&mut lending_market.reserves, type_name::get<Repay>());
+        let repay_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Repay>());
         let withdraw_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Withdraw>());
 
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
