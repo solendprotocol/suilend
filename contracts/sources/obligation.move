@@ -877,6 +877,8 @@ module suilend::obligation {
 
     #[test]
     public fun test_deposit() {
+        use sui::test_utils::{Self};
+
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
@@ -920,10 +922,9 @@ module suilend::obligation {
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from(0), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(0), 4);
 
-
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
-        destroy_for_testing(obligation);
+        test_utils::destroy(usdc_reserve);
+        test_utils::destroy(sui_reserve);
+        test_utils::destroy(obligation);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -944,8 +945,8 @@ module suilend::obligation {
         deposit<TEST_MARKET>(&mut obligation, &sui_reserve, 100 * 1_000_000_000);
         borrow<TEST_MARKET>(&mut obligation, &usdc_reserve, 200 * 1_000_000 + 1);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
     }
@@ -1000,8 +1001,8 @@ module suilend::obligation {
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(50), 4);
         assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(100), 4);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
         destroy_for_testing(obligation);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -1025,9 +1026,9 @@ module suilend::obligation {
 
         withdraw<TEST_MARKET>(&mut obligation, &sui_reserve, 50 * 1_000_000_000 + 1);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1049,9 +1050,9 @@ module suilend::obligation {
 
         withdraw<TEST_MARKET>(&mut obligation, &usdc_reserve, 1);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1107,8 +1108,8 @@ module suilend::obligation {
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(40), 4);
         assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(80), 4);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
@@ -1171,8 +1172,8 @@ module suilend::obligation {
         assert!(obligation.weighted_borrowed_value_usd == decimal::from_percent(50), 4);
         assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(1), 4);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);
@@ -1222,8 +1223,8 @@ module suilend::obligation {
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent_u64(10_050), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from_percent_u64(20_100), 4);
 
-        reserve::destroy_for_testing(usdc_reserve);
-        reserve::destroy_for_testing(sui_reserve);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
         destroy_for_testing(obligation);
         test_scenario::end(scenario);

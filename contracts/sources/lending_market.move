@@ -10,11 +10,11 @@ module suilend::lending_market {
     use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
-    use suilend::reserve::{Self, Reserve};
+    use suilend::reserve::{Self, Reserve, CToken};
     use suilend::reserve_config::{ReserveConfig};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
-    use sui::balance::{Self, Balance, Supply};
+    use sui::balance::{Self, Balance};
     use pyth::price_info::{PriceInfoObject};
     use std::type_name::{Self, TypeName};
 
@@ -48,19 +48,6 @@ module suilend::lending_market {
         id: UID,
         obligation_id: ID
     }
-
-    struct Balances<phantom P, phantom T> has store {
-        available_amount: Balance<T>,
-        ctoken_supply: Supply<CToken<P, T>>,
-        deposited_ctokens: Balance<CToken<P, T>>,
-        fees: Balance<T>,
-        ctoken_fees: Balance<CToken<P, T>>,
-    }
-
-    // used to store Balance objects in the Bag
-    struct Name<phantom P> has copy, drop, store {}
-
-    struct CToken<phantom P, phantom T> has drop {}
 
     // === Events ===
     struct MintEvent<phantom P, phantom T> has drop, copy {
@@ -177,27 +164,24 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
-        let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
-
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
         reserve::compound_interest(reserve, clock);
-        let ctoken_amount = reserve::deposit_liquidity_and_mint_ctokens<P>(
+
+        let deposit_amount = coin::value(&deposit);
+        let ctokens = reserve::deposit_liquidity_and_mint_ctokens<P, T>(
             reserve, 
-            coin::value(&deposit)
+            coin::into_balance(deposit)
         );
 
-        assert!(ctoken_amount > 0, ETooSmall);
+        assert!(balance::value(&ctokens) > 0, ETooSmall);
 
         event::emit(MintEvent<P, T> {
-            in_liquidity_amount: coin::value(&deposit),
-            out_ctoken_amount: ctoken_amount,
+            in_liquidity_amount: deposit_amount,
+            out_ctoken_amount: balance::value(&ctokens),
             caller: tx_context::sender(ctx)
         });
 
-        let ctoken_balance = balance::increase_supply(&mut balances.ctoken_supply, ctoken_amount);
-
-        balance::join(&mut balances.available_amount, coin::into_balance(deposit));
-
-        coin::from_balance(ctoken_balance, ctx)
+        coin::from_balance(ctokens, ctx)
     }
 
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
@@ -209,24 +193,24 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&ctokens) > 0, ETooSmall);
 
-        let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
+        let ctoken_amount = coin::value(&ctokens);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         reserve::compound_interest(reserve, clock);
-        let liquidity_amount = reserve::redeem_ctokens<P>(
+        let liquidity = reserve::redeem_ctokens<P, T>(
             reserve, 
-            coin::value(&ctokens)
+            coin::into_balance(ctokens)
         );
 
-        assert!(liquidity_amount > 0, ETooSmall);
+        assert!(balance::value(&liquidity) > 0, ETooSmall);
 
         event::emit(RedeemEvent<P, T> {
-            in_ctoken_amount: coin::value(&ctokens),
-            out_liquidity_amount: liquidity_amount,
+            in_ctoken_amount: ctoken_amount,
+            out_liquidity_amount: balance::value(&liquidity),
             caller: tx_context::sender(ctx)
         });
 
-        balance::decrease_supply(&mut balances.ctoken_supply, coin::into_balance(ctokens));
-        coin::from_balance(balance::split(&mut balances.available_amount, liquidity_amount), ctx)
+        coin::from_balance(liquidity, ctx)
     }
 
 
@@ -239,17 +223,10 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
-        let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = object_table::borrow(&lending_market.reserves, type_name::get<T>());
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
-        );
-
-        obligation::deposit<P>(
-            obligation, 
-            reserve,
-            coin::value(&deposit)
         );
 
         event::emit(DepositEvent<P, T> {
@@ -258,7 +235,12 @@ module suilend::lending_market {
             caller: tx_context::sender(ctx)
         });
 
-        balance::join(&mut balances.deposited_ctokens, coin::into_balance(deposit));
+        obligation::deposit<P>(
+            obligation, 
+            reserve,
+            coin::value(&deposit)
+        );
+        reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
 
     }
 
@@ -279,18 +261,15 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
 
-        let borrow_fee = reserve::calculate_borrow_fee<P>(reserve, amount);
+        let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
+        obligation::borrow<P>(obligation, reserve, borrow_amount_with_fees);
 
-        reserve::borrow_liquidity<P>(reserve, amount + borrow_fee);
-        obligation::borrow<P>(obligation, reserve, amount + borrow_fee);
-
-        let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(amount + borrow_fee));
+        let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
         rate_limiter::process_qty(
             &mut lending_market.rate_limiter, 
             clock::timestamp_ms(clock) / 1000,
@@ -298,15 +277,11 @@ module suilend::lending_market {
         );
 
         event::emit(BorrowEvent<P, T> {
-            liquidity_amount: amount + borrow_fee,
+            liquidity_amount: borrow_amount_with_fees,
             obligation_id: obligation_owner_cap.obligation_id,
             caller: tx_context::sender(ctx)
         });
 
-        let fee_balance = balance::split(&mut balances.available_amount, borrow_fee);
-        balance::join(&mut balances.fees, fee_balance);
-
-        let receive_balance = balance::split(&mut balances.available_amount, amount);
         coin::from_balance(receive_balance, ctx)
     }
 
@@ -326,7 +301,6 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
         let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
 
         obligation::withdraw<P>(obligation, reserve, amount);
@@ -344,7 +318,8 @@ module suilend::lending_market {
             caller: tx_context::sender(ctx)
         });
 
-        coin::from_balance(balance::split(&mut balances.deposited_ctokens, amount), ctx)
+        let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
+        coin::from_balance(ctoken_balance, ctx)
     }
 
     /// Liquidate an unhealthy obligation. Leftover repay coins are returned.
@@ -352,12 +327,11 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
         clock: &Clock,
-        // TODO maybe should just take a mutable reference to the coin here?
-        repay_coins: Coin<Repay>,
+        repay_coins: &mut Coin<Repay>, // mut because we probably won't use all of it
         ctx: &mut TxContext
-    ): (Coin<Repay>, Coin<CToken<P, Withdraw>>) {
+    ): Coin<CToken<P, Withdraw>> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        assert!(coin::value(&repay_coins) > 0, ETooSmall);
+        assert!(coin::value(repay_coins) > 0, ETooSmall);
 
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
@@ -373,39 +347,19 @@ module suilend::lending_market {
             obligation, 
             repay_reserve, 
             withdraw_reserve, 
-            coin::value(&repay_coins)
+            coin::value(repay_coins)
         );
 
         assert!(withdraw_ctoken_amount > 0, ETooSmall);
         assert!(required_repay_amount > 0, ETooSmall);
 
-        let liquidation_fee_amount = reserve::calculate_liquidation_fee<P>(
-            withdraw_reserve, 
-            withdraw_ctoken_amount
-        );
+        let required_repay_coins = coin::split(repay_coins, required_repay_amount, ctx);
+        let repay_reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<Repay>());
+        reserve::repay_liquidity<P, Repay>(repay_reserve, coin::into_balance(required_repay_coins));
 
-        {
-            let (repay_reserve, repay_balances) = get_reserve_mut<P, Repay>(lending_market);
-
-            reserve::repay_liquidity<P>(repay_reserve, required_repay_amount);
-
-            let required_repay_coins = coin::split(&mut repay_coins, required_repay_amount, ctx);
-            balance::join(&mut repay_balances.available_amount, coin::into_balance(required_repay_coins));
-        };
-
-        let (_, withdraw_balances) = get_reserve_mut<P, Withdraw>(lending_market);
-
-        let withdraw_ctokens_balance = balance::split(
-            &mut withdraw_balances.deposited_ctokens, 
-            withdraw_ctoken_amount
-        );
-
-        let fee_balance = balance::split(
-            &mut withdraw_ctokens_balance,
-            liquidation_fee_amount
-        );
-
-        balance::join(&mut withdraw_balances.ctoken_fees, fee_balance);
+        let withdraw_reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<Withdraw>());
+        let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
+        reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
 
         event::emit(LiquidateEvent<P, Repay, Withdraw> {
             repay_amount: required_repay_amount,
@@ -414,7 +368,7 @@ module suilend::lending_market {
             caller: tx_context::sender(ctx)
         });
 
-        (repay_coins, coin::from_balance(withdraw_ctokens_balance, ctx))
+        coin::from_balance(ctokens, ctx)
     }
 
     public fun repay<P, T>(
@@ -426,29 +380,27 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let obligation = object_table::borrow_mut(
-            &mut lending_market.obligations, 
-            obligation_id
-        );
-        let balances: &mut Balances<P, T> = bag::borrow_mut(&mut lending_market.balances, Name<T> {});
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
-
-        reserve::compound_interest(reserve, clock);
-        reserve::repay_liquidity<P>(reserve, coin::value(&repay_coins));
-
-        obligation::repay<P>(
-            obligation, 
-            reserve, 
-            decimal::from(coin::value(&repay_coins))
-        );
-
         event::emit(RepayEvent<P, T> {
             liquidity_amount: coin::value(&repay_coins),
             obligation_id,
             caller: tx_context::sender(ctx)
         });
 
-        balance::join(&mut balances.available_amount, coin::into_balance(repay_coins));
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_id
+        );
+
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+
+        reserve::compound_interest(reserve, clock);
+        obligation::repay<P>(
+            obligation, 
+            reserve, 
+            decimal::from(coin::value(&repay_coins))
+        );
+
+        reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins));
     }
 
 
@@ -486,17 +438,6 @@ module suilend::lending_market {
         );
 
         object_table::add(&mut lending_market.reserves, type_name::get<T>(), reserve);
-        bag::add(
-            &mut lending_market.balances, 
-            Name<T> {}, 
-            Balances<P, T> {
-                available_amount: balance::zero(),
-                ctoken_supply: balance::create_supply(CToken<P, T> {}),
-                deposited_ctokens: balance::zero(),
-                fees: balance::zero(),
-                ctoken_fees: balance::zero(),
-            }
-        );
     }
 
     public fun update_reserve_config<P, T>(
@@ -506,7 +447,7 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let (reserve, _) = get_reserve_mut<P, T>(lending_market);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
         reserve::update_reserve_config<P>(reserve, config);
     }
 
@@ -518,40 +459,16 @@ module suilend::lending_market {
     ): (Coin<CToken<P, T>>, Coin<T>) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let (reserve, balances) = get_reserve_mut<P, T>(lending_market);
-
-        let claimed_spread_fees_amount = reserve::claim_spread_fees<P>(reserve);
-        let claimed_spread_fees = balance::split(&mut balances.available_amount, claimed_spread_fees_amount);
-
-        let fee_balance = balance::withdraw_all(&mut balances.fees);
-        balance::join(&mut fee_balance, claimed_spread_fees);
-
-        let ctoken_fee_balance = balance::withdraw_all(&mut balances.ctoken_fees);
+        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let (ctoken_fees, fees) = reserve::claim_fees<P, T>(reserve);
 
         (
-            coin::from_balance(ctoken_fee_balance, ctx),
-            coin::from_balance(fee_balance, ctx)
+            coin::from_balance(ctoken_fees, ctx),
+            coin::from_balance(fees, ctx)
         )
-
     }
 
     // === Private Functions ===
-    fun get_reserve_mut<P, T>(
-        lending_market: &mut LendingMarket<P>,
-    ): (&mut Reserve<P>, &mut Balances<P, T>) {
-        let balances: &mut Balances<P, T> = bag::borrow_mut(
-            &mut lending_market.balances, 
-            Name<T> {}
-        );
-
-        let reserve = object_table::borrow_mut(
-            &mut lending_market.reserves, 
-            type_name::get<T>()
-        );
-
-        (reserve, balances)
-    }
-
     // === Test Functions ===
     #[test_only]
     public fun print_obligation<P>(
@@ -1228,15 +1145,15 @@ module suilend::lending_market {
 
         // liquidate the obligation
         let sui = coin::mint_for_testing<TEST_SUI>(5 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let (leftover_sui, usdc) = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
+        let usdc = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
             &mut lending_market,
             obligation_id(&obligation_owner_cap),
             &clock,
-            sui,
+            &mut sui,
             test_scenario::ctx(&mut scenario)
         );
 
-        assert!(coin::value(&leftover_sui) == 4 * 1_000_000_000, 0);
+        assert!(coin::value(&sui) == 4 * 1_000_000_000, 0);
         assert!(coin::value(&usdc) == 10 * 1_000_000 + 500_000, 0);
 
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
@@ -1262,7 +1179,7 @@ module suilend::lending_market {
         test_utils::destroy(ctoken_fees);
         test_utils::destroy(fees);
 
-        test_utils::destroy(leftover_sui);
+        test_utils::destroy(sui);
         test_utils::destroy(usdc);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
