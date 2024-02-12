@@ -547,7 +547,7 @@ module suilend::reserve {
             {
                 let v = vector::empty();
                 vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 31536000);
+                vector::push_back(&mut v, 3153600000);
                 v
             },
             test_scenario::ctx(&mut scenario)

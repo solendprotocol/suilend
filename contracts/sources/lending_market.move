@@ -337,12 +337,10 @@ module suilend::lending_market {
             &mut lending_market.obligations, 
             obligation_id
         );
-
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let repay_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Repay>());
         let withdraw_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Withdraw>());
-
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation, 
             repay_reserve, 
@@ -1130,6 +1128,7 @@ module suilend::lending_market {
                 );
                 reserve_config::set_open_ltv_pct(&mut builder, 0);
                 reserve_config::set_close_ltv_pct(&mut builder, 0);
+                reserve_config::set_liquidation_bonus_bps(&mut builder, 1_000);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             }

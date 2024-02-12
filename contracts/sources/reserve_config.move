@@ -18,10 +18,11 @@ module suilend::reserve_config {
         borrow_weight_bps: u64,
         deposit_limit: u64,
         borrow_limit: u64,
-        liquidation_bonus_pct: u8,
+        liquidation_bonus_bps: u64,
 
         // interest params
         interest_rate_utils: vector<u8>,
+        // in basis points
         interest_rate_aprs: vector<u64>,
 
         // fees
@@ -42,7 +43,7 @@ module suilend::reserve_config {
         borrow_weight_bps: u64, 
         deposit_limit: u64, 
         borrow_limit: u64, 
-        liquidation_bonus_pct: u8,
+        liquidation_bonus_bps: u64,
         borrow_fee_bps: u64, 
         spread_fee_bps: u64, 
         liquidation_fee_bps: u64, 
@@ -56,7 +57,7 @@ module suilend::reserve_config {
             borrow_weight_bps,
             deposit_limit,
             borrow_limit,
-            liquidation_bonus_pct,
+            liquidation_bonus_bps,
             interest_rate_utils,
             interest_rate_aprs,
             borrow_fee_bps,
@@ -75,7 +76,7 @@ module suilend::reserve_config {
         assert!(config.open_ltv_pct <= config.close_ltv_pct, EInvalidReserveConfig);
 
         assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_bonus_pct <= 20, EInvalidReserveConfig);
+        assert!(config.liquidation_bonus_bps <= 2_000, EInvalidReserveConfig);
 
         assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
         assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
@@ -126,7 +127,7 @@ module suilend::reserve_config {
     }
 
     public fun liquidation_bonus(config: &ReserveConfig): Decimal {
-        decimal::from_percent(config.liquidation_bonus_pct)
+        decimal::from_bps(config.liquidation_bonus_bps)
     }
 
     public fun borrow_fee(config: &ReserveConfig): Decimal {
@@ -152,8 +153,8 @@ module suilend::reserve_config {
             let right_util = decimal::from_percent(*vector::borrow(&config.interest_rate_utils, i));
 
             if (ge(cur_util, left_util) && le(cur_util, right_util)) {
-                let left_apr = decimal::from_percent_u64(*vector::borrow(&config.interest_rate_aprs, i - 1));
-                let right_apr = decimal::from_percent_u64(*vector::borrow(&config.interest_rate_aprs, i));
+                let left_apr = decimal::from_bps(*vector::borrow(&config.interest_rate_aprs, i - 1));
+                let right_apr = decimal::from_bps(*vector::borrow(&config.interest_rate_aprs, i));
 
                 let weight = div(
                     sub(cur_util, left_util),
@@ -182,7 +183,7 @@ module suilend::reserve_config {
             borrow_weight_bps: _,
             deposit_limit: _,
             borrow_limit: _,
-            liquidation_bonus_pct: _,
+            liquidation_bonus_bps: _,
             interest_rate_utils: _,
             interest_rate_aprs: _,
             borrow_fee_bps: _,
@@ -201,7 +202,7 @@ module suilend::reserve_config {
         set_borrow_weight_bps(&mut builder, config.borrow_weight_bps);
         set_deposit_limit(&mut builder, config.deposit_limit);
         set_borrow_limit(&mut builder, config.borrow_limit);
-        set_liquidation_bonus_pct(&mut builder, config.liquidation_bonus_pct);
+        set_liquidation_bonus_bps(&mut builder, config.liquidation_bonus_bps);
 
         set_interest_rate_utils(&mut builder, config.interest_rate_utils);
         set_interest_rate_aprs(&mut builder, config.interest_rate_aprs);
@@ -242,8 +243,8 @@ module suilend::reserve_config {
         set(builder, b"borrow_limit", borrow_limit);
     }
 
-    public fun set_liquidation_bonus_pct(builder: &mut ReserveConfigBuilder, liquidation_bonus_pct: u8) {
-        set(builder, b"liquidation_bonus_pct", liquidation_bonus_pct);
+    public fun set_liquidation_bonus_bps(builder: &mut ReserveConfigBuilder, liquidation_bonus_bps: u64) {
+        set(builder, b"liquidation_bonus_bps", liquidation_bonus_bps);
     }
 
     public fun set_interest_rate_utils(builder: &mut ReserveConfigBuilder, interest_rate_utils: vector<u8>) {
@@ -273,7 +274,7 @@ module suilend::reserve_config {
             bag::remove(&mut builder.fields, b"borrow_weight_bps"),
             bag::remove(&mut builder.fields, b"deposit_limit"),
             bag::remove(&mut builder.fields, b"borrow_limit"),
-            bag::remove(&mut builder.fields, b"liquidation_bonus_pct"),
+            bag::remove(&mut builder.fields, b"liquidation_bonus_bps"),
             bag::remove(&mut builder.fields, b"borrow_fee_bps"),
             bag::remove(&mut builder.fields, b"spread_fee_bps"),
             bag::remove(&mut builder.fields, b"liquidation_fee_bps"),
@@ -350,8 +351,8 @@ module suilend::reserve_config {
         config.interest_rate_aprs = {
             let v = vector::empty();
             vector::push_back(&mut v, 0);
-            vector::push_back(&mut v, 100);
-            vector::push_back(&mut v, 1000);
+            vector::push_back(&mut v, 10000);
+            vector::push_back(&mut v, 100000);
             v
         };
 

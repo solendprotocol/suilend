@@ -738,8 +738,8 @@ module suilend::obligation {
             // aprs
             {
                 let v = vector::empty();
-                vector::push_back(&mut v, 31536000);
-                vector::push_back(&mut v, 31536000 * 2);
+                vector::push_back(&mut v, 3153600000);
+                vector::push_back(&mut v, 3153600000 * 2);
                 v
             },
             test_scenario::ctx(scenario)
@@ -790,8 +790,8 @@ module suilend::obligation {
             // aprs
             {
                 let v = vector::empty();
-                vector::push_back(&mut v, 31536000);
-                vector::push_back(&mut v, 31536000 * 2);
+                vector::push_back(&mut v, 3153600000);
+                vector::push_back(&mut v, 3153600000 * 2);
                 v
             },
             test_scenario::ctx(scenario)
@@ -842,8 +842,8 @@ module suilend::obligation {
             // aprs
             {
                 let v = vector::empty();
-                vector::push_back(&mut v, 31536000 * 10);
-                vector::push_back(&mut v, 31536000 * 20);
+                vector::push_back(&mut v, 3153600000 * 10);
+                vector::push_back(&mut v, 3153600000 * 20);
                 v
             },
             test_scenario::ctx(scenario)
@@ -1475,6 +1475,7 @@ module suilend::obligation {
             );
             reserve_config::set_open_ltv_pct(&mut builder, 0);
             reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_liquidation_bonus_bps(&mut builder, 1000);
             reserve_config::build(builder, test_scenario::ctx(&mut scenario))
         };
         reserve::update_reserve_config(
@@ -1576,6 +1577,7 @@ module suilend::obligation {
             );
             reserve_config::set_open_ltv_pct(&mut builder, 0);
             reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_liquidation_bonus_bps(&mut builder, 1000);
 
             reserve_config::build(builder, test_scenario::ctx(&mut scenario))
         };
