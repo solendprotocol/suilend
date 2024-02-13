@@ -1,7 +1,7 @@
 module suilend::lending_market {
     // === Imports ===
     use sui::object::{Self, ID, UID};
-    use suilend::rate_limiter::{Self, RateLimiter};
+    use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use sui::event::{Self};
     use suilend::decimal::{Self};
     use sui::object_table::{Self, ObjectTable};
@@ -14,7 +14,7 @@ module suilend::lending_market {
     use suilend::reserve_config::{ReserveConfig};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
-    use sui::balance::{Self, Balance};
+    use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
     use std::type_name::{Self, TypeName};
 
@@ -36,7 +36,8 @@ module suilend::lending_market {
         balances: Bag,
 
         // window duration is in seconds
-        rate_limiter: RateLimiter
+        rate_limiter: RateLimiter,
+        fee_receiver: address
     }
 
     struct LendingMarketOwnerCap<phantom P> has key, store {
@@ -96,6 +97,7 @@ module suilend::lending_market {
     // === Public-Mutative Functions ===
     public fun create_lending_market<P: drop>(
         witness: P, 
+        fee_receiver: address,
         ctx: &mut TxContext
     ): (LendingMarketOwnerCap<P>, LendingMarket<P>) {
         assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
@@ -106,7 +108,8 @@ module suilend::lending_market {
             reserves: object_table::new(ctx),
             obligations: object_table::new(ctx),
             balances: bag::new(ctx),
-            rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0)
+            rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0),
+            fee_receiver
         };
         
         let owner_cap = LendingMarketOwnerCap<P> { 
@@ -449,21 +452,27 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    // TODO: do we want a separate fee collector address? instead of using the owner
-    public fun claim_fees<P, T>(
-        _: &LendingMarketOwnerCap<P>,
+    public fun update_rate_limiter_config<P>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        clock: &Clock,
+        config: RateLimiterConfig,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        lending_market.rate_limiter = rate_limiter::new(config, clock::timestamp_ms(clock) / 1000);
+    }
+
+    entry fun claim_fees<P, T>(
         lending_market: &mut LendingMarket<P>,
         ctx: &mut TxContext
-    ): (Coin<CToken<P, T>>, Coin<T>) {
+    ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
         let (ctoken_fees, fees) = reserve::claim_fees<P, T>(reserve);
 
-        (
-            coin::from_balance(ctoken_fees, ctx),
-            coin::from_balance(fees, ctx)
-        )
+        transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), lending_market.fee_receiver);
+        transfer::public_transfer(coin::from_balance(fees, ctx), lending_market.fee_receiver);
     }
 
     // === Private Functions ===
@@ -509,6 +518,7 @@ module suilend::lending_market {
 
         let (owner_cap, lending_market) = create_lending_market(
             LENDING_MARKET {},
+            owner,
             test_scenario::ctx(&mut scenario)
         );
 
@@ -587,6 +597,7 @@ module suilend::lending_market {
 
         let (owner_cap, lending_market) = create_lending_market(
             LENDING_MARKET {},
+            tx_context::sender(test_scenario::ctx(scenario)),
             test_scenario::ctx(scenario)
         );
 
@@ -908,15 +919,18 @@ module suilend::lending_market {
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
         assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation) == decimal::from(1_000_000), 0);
 
-        // claim fees
-        let (ctoken_fees, fees) = claim_fees<LENDING_MARKET, TEST_SUI>(
-            &owner_cap,
+        test_scenario::next_tx(&mut scenario, owner);
+
+        claim_fees<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             test_scenario::ctx(&mut scenario)
         );
+
+        test_scenario::next_tx(&mut scenario, owner);
+
+        let fees: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, lending_market.fee_receiver);
         assert!(coin::value(&fees) == 1_000_000, 0);
 
-        test_utils::destroy(ctoken_fees);
         test_utils::destroy(fees);
 
         test_utils::destroy(obligation_owner_cap);
@@ -1168,16 +1182,20 @@ module suilend::lending_market {
         assert!(deposited_amount == old_deposited_amount - 11 * 1_000_000, 0);
 
         // claim fees
-        let (ctoken_fees, fees) = claim_fees<LENDING_MARKET, TEST_USDC>(
-            &owner_cap,
+        test_scenario::next_tx(&mut scenario, owner);
+        claim_fees<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::next_tx(&mut scenario, owner);
+        let ctoken_fees: Coin<CToken<LENDING_MARKET, TEST_USDC>> = test_scenario::take_from_address(
+            &scenario, 
+            lending_market.fee_receiver
         );
         assert!(coin::value(&ctoken_fees) == 500_000, 0);
 
         test_utils::destroy(ctoken_fees);
-        test_utils::destroy(fees);
-
         test_utils::destroy(sui);
         test_utils::destroy(usdc);
         test_utils::destroy(obligation_owner_cap);

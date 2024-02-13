@@ -5,7 +5,7 @@ module suilend::rate_limiter {
     const EInvalidTime: u64 = 1;
     const ERateLimitExceeded: u64 = 2;
 
-    struct RateLimiter has store {
+    struct RateLimiter has store, drop {
         /// configuration parameters
         config: RateLimiterConfig,
 
@@ -95,11 +95,6 @@ module suilend::rate_limiter {
         );
     }
 
-    #[test_only]
-    public fun destroy(rate_limiter: RateLimiter) {
-        let RateLimiter { config: _, prev_qty: _, window_start: _, cur_qty: _ } = rate_limiter;
-    }
-
     #[test]
     fun test_rate_limiter() {
         let rate_limiter = new(
@@ -126,7 +121,5 @@ module suilend::rate_limiter {
         };
 
         process_qty(&mut rate_limiter, 100, decimal::from(100));
-
-        destroy(rate_limiter);
     }
 }
