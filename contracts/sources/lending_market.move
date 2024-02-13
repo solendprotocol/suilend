@@ -526,43 +526,6 @@ module suilend::lending_market {
         test_scenario::end(scenario);
     }
 
-    // #[test]
-    // fun test_create_reserve() {
-    //     use sui::test_scenario::{Self};
-    //     use suilend::test_usdc::{Self, TEST_USDC};
-    //     use suilend::reserve_config::{Self};
-    //     use sui::test_utils::{Self};
-
-    //     let owner = @0x26;
-    //     let scenario = test_scenario::begin(owner);
-    //     let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-    //     let (usdc_cap, usdc_metadata) = test_usdc::create_currency(
-    //         test_scenario::ctx(&mut scenario));
-
-    //     let (owner_cap, lending_market) = create_lending_market(
-    //         LENDING_MARKET {},
-    //         test_scenario::ctx(&mut scenario)
-    //     );
-
-    //     add_reserve<LENDING_MARKET, TEST_USDC>(
-    //         &owner_cap,
-    //         &mut lending_market,
-    //         &usdc_price_obj,
-    //         reserve_config::default_reserve_config(),
-    //         &usdc_metadata,
-    //         &clock,
-    //         test_scenario::ctx(&mut scenario)
-    //     );
-
-    //     test_utils::destroy(owner_cap);
-    //     test_utils::destroy(lending_market);
-    //     test_utils::destroy(clock);
-    //     test_utils::destroy(usdc_price_obj);
-    //     test_utils::destroy(usdc_metadata);
-    //     test_utils::destroy(usdc_cap);
-    //     test_scenario::end(scenario);
-    // }
-
     #[test_only]
     use suilend::mock_pyth::{PriceState};
 

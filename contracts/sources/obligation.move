@@ -33,8 +33,8 @@ module suilend::obligation {
     struct Obligation<phantom P> has key, store {
         id: UID,
 
-        deposits: vector<Deposit<P>>,
-        borrows: vector<Borrow<P>>,
+        deposits: vector<Deposit>,
+        borrows: vector<Borrow>,
 
         /// value of all deposits in USD
         deposited_value_usd: Decimal,
@@ -55,15 +55,13 @@ module suilend::obligation {
         weighted_borrowed_value_upper_bound_usd: Decimal,
     }
 
-    struct Deposit<phantom P> has store {
-        reserve_id: ID,
+    struct Deposit has store {
         coin_type: TypeName,
         deposited_ctoken_amount: u64,
         market_value: Decimal,
     }
 
-    struct Borrow<phantom P> has store {
-        reserve_id: ID,
+    struct Borrow has store {
         coin_type: TypeName,
         borrowed_amount: Decimal,
         cumulative_borrow_rate: Decimal,
@@ -452,7 +450,7 @@ module suilend::obligation {
     }
 
     /// Compound the debt on a borrow object
-    fun compound_debt<P>(borrow: &mut Borrow<P>, reserve: &Reserve<P>) {
+    fun compound_debt<P>(borrow: &mut Borrow, reserve: &Reserve<P>) {
         let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
 
         let compounded_interest_rate = div(
@@ -475,7 +473,7 @@ module suilend::obligation {
         let i = 0;
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
-            if (deposit.reserve_id == object::id(reserve)) {
+            if (deposit.coin_type == reserve::coin_type(reserve)) {
                 return i
             };
 
@@ -492,7 +490,7 @@ module suilend::obligation {
         let i = 0;
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
-            if (borrow.reserve_id == object::id(reserve)) {
+            if (borrow.coin_type == reserve::coin_type(reserve)) {
                 return i
             };
 
@@ -505,7 +503,7 @@ module suilend::obligation {
     fun find_borrow_mut<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-    ): &mut Borrow<P> {
+    ): &mut Borrow {
         let i = find_borrow_index(obligation, reserve);
         assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
 
@@ -515,7 +513,7 @@ module suilend::obligation {
     fun find_borrow<P>(
         obligation: &Obligation<P>,
         reserve: &Reserve<P>,
-    ): &Borrow<P> {
+    ): &Borrow {
         let i = find_borrow_index(obligation, reserve);
         assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
 
@@ -525,7 +523,7 @@ module suilend::obligation {
     fun find_deposit_mut<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-    ): &mut Deposit<P> {
+    ): &mut Deposit {
         let i = find_deposit_index(obligation, reserve);
         assert!(i < vector::length(&obligation.deposits), EDepositNotFound);
 
@@ -535,7 +533,7 @@ module suilend::obligation {
     fun find_deposit<P>(
         obligation: &Obligation<P>,
         reserve: &Reserve<P>,
-    ): &Deposit<P> {
+    ): &Deposit {
         let i = find_deposit_index(obligation, reserve);
         assert!(i < vector::length(&obligation.deposits), EDepositNotFound);
 
@@ -545,14 +543,13 @@ module suilend::obligation {
     fun find_or_add_borrow<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>,
-    ): &mut Borrow<P> {
+    ): &mut Borrow {
         let i = find_borrow_index(obligation, reserve);
         if (i < vector::length(&obligation.borrows)) {
             return vector::borrow_mut(&mut obligation.borrows, i)
         };
 
-        let borrow = Borrow<P> {
-            reserve_id: object::id(reserve),
+        let borrow = Borrow {
             coin_type: reserve::coin_type(reserve),
             borrowed_amount: decimal::from(0),
             cumulative_borrow_rate: reserve::cumulative_borrow_rate(reserve),
@@ -567,14 +564,13 @@ module suilend::obligation {
     fun find_or_add_deposit<P>(
         obligation: &mut Obligation<P>,
         reserve: &Reserve<P>
-    ): &mut Deposit<P> {
+    ): &mut Deposit {
         let i = find_deposit_index(obligation, reserve);
         if (i < vector::length(&obligation.deposits)) {
             return vector::borrow_mut(&mut obligation.deposits, i)
         };
 
-        let deposit = Deposit<P> {
-            reserve_id: object::id(reserve),
+        let deposit = Deposit {
             coin_type: reserve::coin_type(reserve),
             deposited_ctoken_amount: 0,
             market_value: decimal::from(0)
@@ -586,38 +582,8 @@ module suilend::obligation {
     }
 
     #[test_only]
-    public fun destroy_for_testing<P>(obligation: Obligation<P>) {
-        let Obligation {
-            id,
-            deposits,
-            borrows,
-            deposited_value_usd: _,
-            allowed_borrow_value_usd: _,
-            unhealthy_borrow_value_usd: _,
-            unweighted_borrowed_value_usd: _,
-            weighted_borrowed_value_usd: _,
-            weighted_borrowed_value_upper_bound_usd: _,
-        } = obligation;
-
-        while (vector::length(&deposits) > 0) {
-            let deposit = vector::pop_back(&mut deposits);
-            destroy_deposit_for_testing<P>(deposit);
-        };
-        vector::destroy_empty(deposits);
-
-        while (vector::length(&borrows) > 0) {
-            let borrow = vector::pop_back(&mut borrows);
-            destroy_borrow_for_testing<P>(borrow);
-        };
-        vector::destroy_empty(borrows);
-
-        object::delete(id);
-    }
-
-    #[test_only]
-    public fun destroy_deposit_for_testing<P>(deposit: Deposit<P>) {
+    public fun destroy_deposit_for_testing(deposit: Deposit) {
         let Deposit {
-            reserve_id: _,
             coin_type: _,
             deposited_ctoken_amount: _,
             market_value: _,
@@ -626,9 +592,8 @@ module suilend::obligation {
 
     // === Test Functions ===
     #[test_only]
-    public fun destroy_borrow_for_testing<P>(borrow: Borrow<P>) {
+    public fun destroy_borrow_for_testing(borrow: Borrow) {
         let Borrow {
-            reserve_id: _,
             coin_type: _,
             borrowed_amount: _,
             cumulative_borrow_rate: _,
@@ -947,7 +912,7 @@ module suilend::obligation {
 
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1003,7 +968,7 @@ module suilend::obligation {
 
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -1111,7 +1076,7 @@ module suilend::obligation {
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1175,7 +1140,7 @@ module suilend::obligation {
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1226,7 +1191,7 @@ module suilend::obligation {
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1263,7 +1228,7 @@ module suilend::obligation {
 
         test_utils::destroy(reserve_table);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1309,7 +1274,7 @@ module suilend::obligation {
 
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1390,7 +1355,7 @@ module suilend::obligation {
 
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1434,7 +1399,7 @@ module suilend::obligation {
 
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1520,7 +1485,7 @@ module suilend::obligation {
 
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 
@@ -1621,10 +1586,9 @@ module suilend::obligation {
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from(90), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(180), 4);
 
-
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
-        destroy_for_testing(obligation);
+        sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
 }

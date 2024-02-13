@@ -1,3 +1,4 @@
+/// The reserve module holds the coins of a certain type for a given lending market. 
 module suilend::reserve {
     // === Imports ===
     use std::type_name::{Self, TypeName};
@@ -76,6 +77,8 @@ module suilend::reserve {
         unclaimed_spread_fees: Decimal
     }
 
+    /// Interest bearing token on the underlying Coin<T>. The ctoken can be redeemed for 
+    /// the underlying token + any interest earned.
     struct CToken<phantom P, phantom T> has drop {}
 
     // === Dynamic Field Keys ===
@@ -343,7 +346,7 @@ module suilend::reserve {
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
-    // compound interest every second
+    /// Compound interest and debt. Interest is compounded every second.
     public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
@@ -457,7 +460,7 @@ module suilend::reserve {
         balance::split(available_amount, liquidity_amount)
     }
 
-    // returns the requested amount of liquidity + the total amount borrowed inclusive of fees
+    /// Borrow tokens from the reserve. A fee is charged on the borrowed amount
     public(friend) fun borrow_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
         amount: u64
@@ -475,9 +478,9 @@ module suilend::reserve {
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
         let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        let receive_balance = balance::split(available_amount, amount);
-        let fee_balance = balance::split(available_amount, borrow_fee);
 
+        let receive_balance = balance::split(available_amount, borrow_amount_with_fees);
+        let fee_balance = balance::split(&mut receive_balance, borrow_fee);
         let fees = dynamic_field::borrow_mut(&mut reserve.id, Fees {});
         balance::join(fees, fee_balance);
 
