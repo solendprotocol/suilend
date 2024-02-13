@@ -33,7 +33,6 @@ module suilend::lending_market {
 
         reserves: ObjectTable<TypeName, Reserve<P>>,
         obligations: ObjectTable<ID, Obligation<P>>,
-        balances: Bag,
 
         // window duration is in seconds
         rate_limiter: RateLimiter,
@@ -107,7 +106,6 @@ module suilend::lending_market {
             version: CURRENT_VERSION,
             reserves: object_table::new(ctx),
             obligations: object_table::new(ctx),
-            balances: bag::new(ctx),
             rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0),
             fee_receiver
         };
