@@ -244,7 +244,6 @@ module suilend::lending_market {
             coin::value(&deposit)
         );
         reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
-
     }
 
     /// Borrow tokens of type T. A fee is charged.

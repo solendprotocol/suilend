@@ -95,6 +95,44 @@ module suilend::reserve {
         timestamp_s: u64
     }
 
+    // === Constructor ===
+    public(friend) fun create_reserve<P, T>(
+        config: ReserveConfig, 
+        coin_metadata: &CoinMetadata<T>,
+        price_info_obj: &PriceInfoObject, 
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ): Reserve<P> {
+
+        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
+
+        let reserve = Reserve {
+            id: object::new(ctx),
+            coin_type: type_name::get<T>(),
+            config: cell::new(config),
+            mint_decimals: coin::get_decimals(coin_metadata),
+            price_identifier,
+            price: option::extract(&mut price_decimal),
+            smoothed_price: smoothed_price_decimal,
+            price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            available_amount: 0,
+            ctoken_supply: 0,
+            borrowed_amount: decimal::from(0),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            unclaimed_spread_fees: decimal::from(0)
+        };
+
+        dynamic_field::add(&mut reserve.id, AvailableAmount {}, balance::zero<T>());
+        dynamic_field::add(&mut reserve.id, CTokenSupply {}, balance::create_supply(CToken<P, T> {}));
+        dynamic_field::add(&mut reserve.id, Fees {}, balance::zero<T>());
+        dynamic_field::add(&mut reserve.id, CTokenFees {}, balance::zero<CToken<P, T>>());
+        dynamic_field::add(&mut reserve.id, DepositedCTokens {}, balance::zero<CToken<P, T>>());
+
+        reserve
+    }
+
     // === Public-View Functions ===
     public fun available_amount<P>(reserve: &Reserve<P>): u64 {
         reserve.available_amount
@@ -283,43 +321,6 @@ module suilend::reserve {
     }
 
     // === Public-Friend Functions
-    public(friend) fun create_reserve<P, T>(
-        config: ReserveConfig, 
-        coin_metadata: &CoinMetadata<T>,
-        price_info_obj: &PriceInfoObject, 
-        clock: &Clock, 
-        ctx: &mut TxContext
-    ): Reserve<P> {
-
-        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
-        assert!(option::is_some(&price_decimal), EInvalidPrice);
-
-        let reserve = Reserve {
-            id: object::new(ctx),
-            coin_type: type_name::get<T>(),
-            config: cell::new(config),
-            mint_decimals: coin::get_decimals(coin_metadata),
-            price_identifier,
-            price: option::extract(&mut price_decimal),
-            smoothed_price: smoothed_price_decimal,
-            price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-            available_amount: 0,
-            ctoken_supply: 0,
-            borrowed_amount: decimal::from(0),
-            cumulative_borrow_rate: decimal::from(1),
-            interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-            unclaimed_spread_fees: decimal::from(0)
-        };
-
-        dynamic_field::add(&mut reserve.id, AvailableAmount {}, balance::zero<T>());
-        dynamic_field::add(&mut reserve.id, CTokenSupply {}, balance::create_supply(CToken<P, T> {}));
-        dynamic_field::add(&mut reserve.id, Fees {}, balance::zero<T>());
-        dynamic_field::add(&mut reserve.id, CTokenFees {}, balance::zero<CToken<P, T>>());
-        dynamic_field::add(&mut reserve.id, DepositedCTokens {}, balance::zero<CToken<P, T>>());
-
-        reserve
-    }
-
     public(friend) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
