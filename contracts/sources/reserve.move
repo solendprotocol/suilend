@@ -82,11 +82,16 @@ module suilend::reserve {
     struct CToken<phantom P, phantom T> has drop {}
 
     // === Dynamic Field Keys ===
-    struct AvailableAmount has copy, drop, store {}
-    struct CTokenSupply has copy, drop, store {}
-    struct Fees has copy, drop, store {}
-    struct CTokenFees has copy, drop, store {}
-    struct DepositedCTokens has copy, drop, store {}
+    struct BalanceKey has copy, drop, store {}
+
+    /// Balances are stored in a dynamic field to avoid typing the Reserve with CoinType
+    struct Balances<phantom P, phantom T> has store {
+        available_amount: Balance<T>,
+        ctoken_supply: Supply<CToken<P, T>>,
+        fees: Balance<T>,
+        ctoken_fees: Balance<CToken<P, T>>,
+        deposited_ctokens: Balance<CToken<P, T>>
+    }
 
     // === Events ===
     struct InterestUpdateEvent<phantom P> has drop, copy {
@@ -127,11 +132,17 @@ module suilend::reserve {
             unclaimed_spread_fees: decimal::from(0)
         };
 
-        dynamic_field::add(&mut reserve.id, AvailableAmount {}, balance::zero<T>());
-        dynamic_field::add(&mut reserve.id, CTokenSupply {}, balance::create_supply(CToken<P, T> {}));
-        dynamic_field::add(&mut reserve.id, Fees {}, balance::zero<T>());
-        dynamic_field::add(&mut reserve.id, CTokenFees {}, balance::zero<CToken<P, T>>());
-        dynamic_field::add(&mut reserve.id, DepositedCTokens {}, balance::zero<CToken<P, T>>());
+        dynamic_field::add(
+            &mut reserve.id,
+            BalanceKey {},
+            Balances<P, T> {
+                available_amount: balance::zero<T>(),
+                ctoken_supply: balance::create_supply(CToken<P, T> {}),
+                fees: balance::zero<T>(),
+                ctoken_fees: balance::zero<CToken<P, T>>(),
+                deposited_ctokens: balance::zero<CToken<P, T>>()
+            }
+        );
 
         reserve
     }
@@ -319,8 +330,8 @@ module suilend::reserve {
 
         let fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
 
-        let ctoken_fees = dynamic_field::borrow_mut(&mut reserve.id, CTokenFees {});
-        balance::join(ctoken_fees, balance::split(ctokens, fee_amount));
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, fee_amount));
     }
 
     // === Public-Friend Functions
@@ -400,14 +411,27 @@ module suilend::reserve {
     }
 
     public(friend) fun claim_fees<P, T>(reserve: &mut Reserve<P>): (Balance<CToken<P, T>>, Balance<T>) {
-        let fee_holder = dynamic_field::borrow_mut(&mut reserve.id, Fees {});
-        let fees = balance::withdraw_all(fee_holder);
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        let fees = balance::withdraw_all(&mut balances.fees);
+        let ctoken_fees = balance::withdraw_all(&mut balances.ctoken_fees);
 
-        let ctoken_fee_holder = dynamic_field::borrow_mut(&mut reserve.id, CTokenFees {});
-        let ctoken_fees = balance::withdraw_all(ctoken_fee_holder);
+        // spread fees
+        if (reserve.available_amount >= MIN_AVAILABLE_AMOUNT) {
+            let claimable_spread_fees = floor(min(
+                reserve.unclaimed_spread_fees,
+                decimal::from(reserve.available_amount - MIN_AVAILABLE_AMOUNT)
+            ));
 
-        let spread_fees = claim_spread_fees<P, T>(reserve);
-        balance::join(&mut fees, spread_fees);
+            let spread_fees = balance::split(&mut balances.available_amount, claimable_spread_fees);
+
+            reserve.unclaimed_spread_fees = sub(
+                reserve.unclaimed_spread_fees, 
+                decimal::from(balance::value(&spread_fees))
+            );
+            reserve.available_amount = reserve.available_amount - balance::value(&spread_fees);
+
+            balance::join(&mut fees, spread_fees);
+        };
 
         (ctoken_fees, fees)
     }
@@ -431,11 +455,13 @@ module suilend::reserve {
             EDepositLimitExceeded
         );
 
-        let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        balance::join(available_amount, liquidity);
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
 
-        let ctoken_supply = dynamic_field::borrow_mut(&mut reserve.id, CTokenSupply {});
-        balance::increase_supply(ctoken_supply, new_ctokens)
+        balance::join(&mut balances.available_amount, liquidity);
+        balance::increase_supply(&mut balances.ctoken_supply, new_ctokens)
     }
 
     public(friend) fun redeem_ctokens<P, T>(
@@ -453,11 +479,13 @@ module suilend::reserve {
 
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
-        let ctoken_supply = dynamic_field::borrow_mut(&mut reserve.id, CTokenSupply {});
-        balance::decrease_supply(ctoken_supply, ctokens);
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
 
-        let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        balance::split(available_amount, liquidity_amount)
+        balance::decrease_supply(&mut balances.ctoken_supply, ctokens);
+        balance::split(&mut balances.available_amount, liquidity_amount)
     }
 
     /// Borrow tokens from the reserve. A fee is charged on the borrowed amount
@@ -477,12 +505,14 @@ module suilend::reserve {
         );
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
-        let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
 
-        let receive_balance = balance::split(available_amount, borrow_amount_with_fees);
+        let receive_balance = balance::split(&mut balances.available_amount, borrow_amount_with_fees);
         let fee_balance = balance::split(&mut receive_balance, borrow_fee);
-        let fees = dynamic_field::borrow_mut(&mut reserve.id, Fees {});
-        balance::join(fees, fee_balance);
+        balance::join(&mut balances.fees, fee_balance);
 
         (receive_balance, borrow_amount_with_fees)
     }
@@ -494,40 +524,26 @@ module suilend::reserve {
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
         reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
 
-        let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        balance::join(available_amount, liquidity);
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balance::join(&mut balances.available_amount, liquidity);
     }
 
     public(friend) fun deposit_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
     ) {
-        let deposited_ctokens = dynamic_field::borrow_mut(&mut reserve.id, DepositedCTokens {});
-        balance::join(deposited_ctokens, ctokens);
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balance::join(&mut balances.deposited_ctokens, ctokens);
     }
 
     public(friend) fun withdraw_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         amount: u64
     ): Balance<CToken<P, T>> {
-        let deposited_ctokens = dynamic_field::borrow_mut(&mut reserve.id, DepositedCTokens {});
-        balance::split(deposited_ctokens, amount)
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balance::split(&mut balances.deposited_ctokens, amount)
     }
 
-    // === Private Functions ===
-    fun claim_spread_fees<P, T>(reserve: &mut Reserve<P>): Balance<T> {
-        if (reserve.available_amount < MIN_AVAILABLE_AMOUNT) {
-            return balance::zero<T>()
-        };
-
-        let claimable_spread_fees = floor(min(
-            reserve.unclaimed_spread_fees,
-            decimal::from(reserve.available_amount - MIN_AVAILABLE_AMOUNT)
-        ));
-
-        let available_amount = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        balance::split(available_amount, claimable_spread_fees)
-    }
 
     // === Test Functions ===
     #[test_only]
@@ -699,37 +715,18 @@ module suilend::reserve {
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
-        let reserve = Reserve<TEST_LM> {
-            id: object::new(test_scenario::ctx(&mut scenario)),
-            coin_type: type_name::get<TEST_USDC>(),
-            config: cell::new(example_reserve_config()),
-            mint_decimals: 9,
-            price_identifier: example_price_identifier(),
-            price: decimal::from(1),
-            smoothed_price: decimal::from(1),
-            price_last_update_timestamp_s: 0,
-            available_amount: 500,
-            ctoken_supply: 200,
-            borrowed_amount: decimal::from(500),
-            cumulative_borrow_rate: decimal::from(1),
-            interest_last_update_timestamp_s: 1,
-            unclaimed_spread_fees: decimal::from(0)
-        };
-        dynamic_field::add(
-            &mut reserve.id, 
-            AvailableAmount {}, 
-            balance::create_for_testing<TEST_USDC>(500)
-        );
-        dynamic_field::add(
-            &mut reserve.id, 
-            CTokenSupply {}, 
-            {
-                let supply = balance::create_supply(CToken<TEST_LM, TEST_USDC> {});
-                let tokens = balance::increase_supply(&mut supply, 200);
-                sui::test_utils::destroy(tokens);
-
-                supply
-            }
+        
+        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
+            example_reserve_config(),
+            6,
+            decimal::from(1),
+            0,
+            500,
+            200,
+            decimal::from(500),
+            decimal::from(1),
+            1,
+            test_scenario::ctx(&mut scenario)
         );
 
         let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
@@ -741,11 +738,13 @@ module suilend::reserve {
         assert!(reserve.available_amount == 1500, 0);
         assert!(reserve.ctoken_supply == 400, 0);
 
-        let available_amount: &mut Balance<TEST_USDC> = dynamic_field::borrow_mut(&mut reserve.id, AvailableAmount {});
-        assert!(balance::value(available_amount) == 1500, 0);
+        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
 
-        let ctoken_supply: &mut Supply<CToken<TEST_LM, TEST_USDC>> = dynamic_field::borrow_mut(&mut reserve.id, CTokenSupply {});
-        assert!(balance::supply_value(ctoken_supply) == 400, 0);
+        assert!(balance::value(&balances.available_amount) == 1500, 0);
+        assert!(balance::supply_value(&balances.ctoken_supply) == 400, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(ctokens);
@@ -822,17 +821,13 @@ module suilend::reserve {
         assert!(reserve.available_amount == available_amount_old - 50, 0);
         assert!(reserve.ctoken_supply == ctoken_supply_old - 10, 0);
 
-        let available_amount: &mut Balance<TEST_USDC> = dynamic_field::borrow_mut(
+        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
             &mut reserve.id, 
-            AvailableAmount {}
+            BalanceKey {}
         );
-        assert!(balance::value(available_amount) == available_amount_old - 50, 0);
 
-        let ctoken_supply: &mut Supply<CToken<TEST_LM, TEST_USDC>> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            CTokenSupply {}
-        );
-        assert!(balance::supply_value(ctoken_supply) == ctoken_supply_old - 10, 0);
+        assert!(balance::value(&balances.available_amount) == available_amount_old - 50, 0);
+        assert!(balance::supply_value(&balances.ctoken_supply) == ctoken_supply_old - 10, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(tokens);
@@ -883,14 +878,13 @@ module suilend::reserve {
         assert!(reserve.available_amount == available_amount_old - 404, 0);
         assert!(reserve.borrowed_amount == add(borrowed_amount_old, decimal::from(404)), 0);
 
-        let available_amount: &mut Balance<TEST_USDC> = dynamic_field::borrow_mut(
+        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
             &mut reserve.id, 
-            AvailableAmount {}
+            BalanceKey {}
         );
-        assert!(balance::value(available_amount) == available_amount_old - 404, 0);
 
-        let fees: &mut Balance<TEST_USDC> = dynamic_field::borrow_mut(&mut reserve.id, Fees {});
-        assert!(balance::value(fees) == 4, 0);
+        assert!(balance::value(&mut balances.available_amount) == available_amount_old - 404, 0);
+        assert!(balance::value(&mut balances.fees) == 4, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(tokens);
@@ -984,10 +978,17 @@ module suilend::reserve {
         clock::set_for_testing(&mut clock, 1000);
         compound_interest(&mut reserve, &clock);
 
+        let old_available_amount = reserve.available_amount;
+        let old_unclaimed_spread_fees = reserve.unclaimed_spread_fees;
+
         let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve);
+
         // 0.5% interest a second with 50% take rate => 0.25% fee on 50 USDC = 0.125 USDC
         assert!(balance::value(&fees) == 125_000, 0);
         assert!(balance::value(&ctoken_fees) == 0, 0);
+
+        assert!(reserve.available_amount == old_available_amount - 125_000, 0);
+        assert!(reserve.unclaimed_spread_fees == sub(old_unclaimed_spread_fees, decimal::from(125_000)), 0);
 
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(ctoken_fees);
@@ -1042,11 +1043,11 @@ module suilend::reserve {
         assert!(reserve.available_amount == available_amount_old + 400, 0);
         assert!(reserve.borrowed_amount == sub(borrowed_amount_old, decimal::from(400)), 0);
 
-        let available_amount: &mut Balance<TEST_USDC> = dynamic_field::borrow_mut(
+        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
             &mut reserve.id, 
-            AvailableAmount {}
+            BalanceKey {}
         );
-        assert!(balance::value(available_amount) == available_amount_old + 400, 0);
+        assert!(balance::value(&mut balances.available_amount) == available_amount_old + 400, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(ctokens);
@@ -1094,22 +1095,21 @@ module suilend::reserve {
         };
 
         dynamic_field::add(
-            &mut reserve.id, 
-            AvailableAmount {}, 
-            balance::create_for_testing<T>(available_amount)
-        );
-        dynamic_field::add(
-            &mut reserve.id, 
-            CTokenSupply {}, 
-            {
-                let supply = balance::create_supply(CToken<P, T> {});
-                sui::test_utils::destroy(balance::increase_supply(&mut supply, ctoken_supply));
-                supply
+            &mut reserve.id,
+            BalanceKey {},
+            Balances<P, T> {
+                available_amount: balance::create_for_testing(available_amount),
+                ctoken_supply: {
+                    let supply = balance::create_supply(CToken<P, T> {});
+                    let tokens = balance::increase_supply(&mut supply, ctoken_supply);
+                    sui::test_utils::destroy(tokens);
+                    supply
+                },
+                fees: balance::zero<T>(),
+                ctoken_fees: balance::zero<CToken<P, T>>(),
+                deposited_ctokens: balance::zero<CToken<P, T>>()
             }
         );
-        dynamic_field::add(&mut reserve.id, Fees {}, balance::zero<T>());
-        dynamic_field::add(&mut reserve.id, CTokenFees {}, balance::zero<CToken<P, T>>());
-        dynamic_field::add(&mut reserve.id, DepositedCTokens {}, balance::zero<CToken<P, T>>());
 
         reserve
     }
