@@ -17,11 +17,13 @@ module suilend::lending_market {
     use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
     use std::type_name::{Self, TypeName};
+    use std::vector::{Self};
 
     // === Errors ===
     const ENotAOneTimeWitness: u64 = 0;
     const EIncorrectVersion: u64 = 1;
     const ETooSmall: u64 = 2;
+    const EWrongType: u64 = 3;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -31,7 +33,7 @@ module suilend::lending_market {
         id: UID,
         version: u64,
 
-        reserves: ObjectTable<TypeName, Reserve<P>>,
+        reserves: vector<Reserve<P>>,
         obligations: ObjectTable<ID, Obligation<P>>,
 
         // window duration is in seconds
@@ -104,7 +106,7 @@ module suilend::lending_market {
         let lending_market = LendingMarket<P> {
             id: object::new(ctx),
             version: CURRENT_VERSION,
-            reserves: object_table::new(ctx),
+            reserves: vector::empty(),
             obligations: object_table::new(ctx),
             rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0),
             fee_receiver
@@ -128,14 +130,15 @@ module suilend::lending_market {
 
     /// Cache the price from pyth onto the reserve object. this needs to be done for all
     /// relevant reserves used by an Obligation before any borrow/withdraw/liquidate can be performed.
-    public fun refresh_reserve_price<P, T>(
+    public fun refresh_reserve_price<P>(
         lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
         clock: &Clock,
         price_info: &PriceInfoObject,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         reserve::update_price<P>(reserve, clock, price_info);
     }
 
@@ -158,6 +161,7 @@ module suilend::lending_market {
 
     public fun deposit_liquidity_and_mint_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
         clock: &Clock,
         deposit: Coin<T>,
         ctx: &mut TxContext
@@ -165,7 +169,8 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
         reserve::compound_interest(reserve, clock);
 
         let deposit_amount = coin::value(&deposit);
@@ -187,6 +192,7 @@ module suilend::lending_market {
 
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
         clock: &Clock,
         ctokens: Coin<CToken<P, T>>,
         ctx: &mut TxContext
@@ -195,7 +201,9 @@ module suilend::lending_market {
         assert!(coin::value(&ctokens) > 0, ETooSmall);
 
         let ctoken_amount = coin::value(&ctokens);
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
         let liquidity = reserve::redeem_ctokens<P, T>(
@@ -217,6 +225,7 @@ module suilend::lending_market {
 
     public fun deposit_ctokens_into_obligation<P, T>(
         lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         deposit: Coin<CToken<P, T>>,
         ctx: &mut TxContext
@@ -224,7 +233,9 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_owner_cap.obligation_id
@@ -247,6 +258,7 @@ module suilend::lending_market {
     /// Borrow tokens of type T. A fee is charged.
     public fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
         amount: u64,
@@ -261,7 +273,8 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
@@ -287,6 +300,7 @@ module suilend::lending_market {
 
     public fun withdraw_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
         amount: u64,
@@ -301,7 +315,8 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         obligation::withdraw<P>(obligation, reserve, amount);
 
@@ -326,6 +341,8 @@ module suilend::lending_market {
     public fun liquidate<P, Repay, Withdraw>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
+        repay_reserve_array_index: u64,
+        withdraw_reserve_array_index: u64,
         clock: &Clock,
         repay_coins: &mut Coin<Repay>, // mut because we probably won't use all of it
         ctx: &mut TxContext
@@ -339,8 +356,12 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let repay_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Repay>());
-        let withdraw_reserve = object_table::borrow(&lending_market.reserves, type_name::get<Withdraw>());
+        let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
+        assert!(reserve::coin_type(repay_reserve) == type_name::get<Repay>(), EWrongType);
+
+        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
+        assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
+
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation, 
             repay_reserve, 
@@ -352,10 +373,10 @@ module suilend::lending_market {
         assert!(required_repay_amount > 0, ETooSmall);
 
         let required_repay_coins = coin::split(repay_coins, required_repay_amount, ctx);
-        let repay_reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<Repay>());
+        let repay_reserve = vector::borrow_mut(&mut lending_market.reserves, repay_reserve_array_index);
         reserve::repay_liquidity<P, Repay>(repay_reserve, coin::into_balance(required_repay_coins));
 
-        let withdraw_reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<Withdraw>());
+        let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
         reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
 
@@ -371,6 +392,7 @@ module suilend::lending_market {
 
     public fun repay<P, T>(
         lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
         obligation_id: ID,
         clock: &Clock,
         repay_coins: Coin<T>,
@@ -389,7 +411,8 @@ module suilend::lending_market {
             obligation_id
         );
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
         obligation::repay<P>(
@@ -407,8 +430,24 @@ module suilend::lending_market {
         cap.obligation_id
     }
 
-    public fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
-        object_table::borrow(&lending_market.reserves, type_name::get<T>())
+    // slow function. use sparingly.
+    fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
+        let i = 0;
+        while (i < vector::length(&lending_market.reserves)) {
+            let reserve = vector::borrow(&lending_market.reserves, i);
+            if (reserve::coin_type(reserve) == type_name::get<T>()) {
+                return i
+            };
+
+            i = i + 1;
+        };
+
+        i
+    }
+
+    fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
+        let i = reserve_array_index<P, T>(lending_market);
+        vector::borrow(&lending_market.reserves, i)
     }
 
     public fun obligation<P>(lending_market: &LendingMarket<P>, obligation_id: ID): &Obligation<P> {
@@ -429,23 +468,27 @@ module suilend::lending_market {
 
         let reserve = reserve::create_reserve<P, T>(
             config, 
+            vector::length(&lending_market.reserves),
             coin_metadata, 
             price_info, 
             clock, 
             ctx
         );
 
-        object_table::add(&mut lending_market.reserves, type_name::get<T>(), reserve);
+        vector::push_back(&mut lending_market.reserves, reserve);
     }
 
     public fun update_reserve_config<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
         config: ReserveConfig,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
         reserve::update_reserve_config<P>(reserve, config);
     }
 
@@ -461,11 +504,13 @@ module suilend::lending_market {
 
     entry fun claim_fees<P, T>(
         lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let reserve = object_table::borrow_mut(&mut lending_market.reserves, type_name::get<T>());
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
         let (ctoken_fees, fees) = reserve::claim_fees<P, T>(reserve);
 
         transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), lending_market.fee_receiver);
@@ -532,7 +577,8 @@ module suilend::lending_market {
         clock: Clock,
         owner_cap: LendingMarketOwnerCap<LENDING_MARKET>,
         lending_market: LendingMarket<LENDING_MARKET>,
-        prices: PriceState
+        prices: PriceState,
+        type_to_index: Bag
     }
 
     #[test_only]
@@ -564,6 +610,10 @@ module suilend::lending_market {
         let prices = mock_pyth::init_state(test_scenario::ctx(scenario));
         mock_pyth::register<TEST_USDC>(&mut prices, test_scenario::ctx(scenario));
         mock_pyth::register<TEST_SUI>(&mut prices, test_scenario::ctx(scenario));
+
+        let type_to_index = bag::new(test_scenario::ctx(scenario));
+        bag::add(&mut type_to_index, type_name::get<TEST_USDC>(), 0);
+        bag::add(&mut type_to_index, type_name::get<TEST_SUI>(), 1);
 
         add_reserve<LENDING_MARKET, TEST_USDC>(
             &owner_cap,
@@ -597,6 +647,7 @@ module suilend::lending_market {
 
             let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
                 &mut lending_market,
+                0,
                 &clock,
                 coins,
                 test_scenario::ctx(scenario)
@@ -605,6 +656,7 @@ module suilend::lending_market {
             update_reserve_config<LENDING_MARKET, TEST_USDC>(
                 &owner_cap,
                 &mut lending_market,
+                0,
                 config
             );
 
@@ -622,6 +674,7 @@ module suilend::lending_market {
 
             let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_SUI>(
                 &mut lending_market,
+                1,
                 &clock,
                 coins,
                 test_scenario::ctx(scenario)
@@ -630,6 +683,7 @@ module suilend::lending_market {
             update_reserve_config<LENDING_MARKET, TEST_SUI>(
                 &owner_cap,
                 &mut lending_market,
+                1,
                 config
             );
 
@@ -643,7 +697,8 @@ module suilend::lending_market {
             clock,
             owner_cap,
             lending_market,
-            prices
+            prices,
+            type_to_index
         }
     }
 
@@ -656,7 +711,7 @@ module suilend::lending_market {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let State { clock, owner_cap, lending_market, prices } = setup({
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
             bag::add(
                 &mut bag, 
@@ -679,6 +734,7 @@ module suilend::lending_market {
 
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
@@ -690,6 +746,7 @@ module suilend::lending_market {
 
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
             ctokens,
             test_scenario::ctx(&mut scenario)
@@ -698,14 +755,12 @@ module suilend::lending_market {
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
         assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_USDC>(obligation) == 100 * 1_000_000, 0);
 
-
-        // TODO test state
-
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 
@@ -718,7 +773,7 @@ module suilend::lending_market {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let State { clock, owner_cap, lending_market, prices } = setup({
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
             bag::add(
                 &mut bag, 
@@ -735,6 +790,7 @@ module suilend::lending_market {
         let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
@@ -746,6 +802,7 @@ module suilend::lending_market {
 
         let tokens = redeem_ctokens_and_withdraw_liquidity<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             ctokens,
             test_scenario::ctx(&mut scenario)
@@ -761,6 +818,7 @@ module suilend::lending_market {
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 
@@ -777,7 +835,7 @@ module suilend::lending_market {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let State { clock, owner_cap, lending_market, prices } = setup({
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
             bag::add(
                 &mut bag, 
@@ -825,24 +883,28 @@ module suilend::lending_market {
         let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
         );
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
 
-        refresh_reserve_price<LENDING_MARKET, TEST_USDC>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             mock_pyth::get_price_obj<TEST_USDC>(&prices)
         );
-        refresh_reserve_price<LENDING_MARKET, TEST_SUI>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &clock,
             mock_pyth::get_price_obj<TEST_SUI>(&prices)
         );
@@ -850,6 +912,7 @@ module suilend::lending_market {
         std::debug::print(&lending_market);
         let sui = borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &obligation_owner_cap,
             &clock,
             1 * 1_000_000_000,
@@ -867,6 +930,7 @@ module suilend::lending_market {
 
         repay<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             obligation_id(&obligation_owner_cap),
             &clock,
             sui,
@@ -883,6 +947,7 @@ module suilend::lending_market {
 
         claim_fees<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             test_scenario::ctx(&mut scenario)
         );
 
@@ -898,6 +963,7 @@ module suilend::lending_market {
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 
@@ -913,7 +979,7 @@ module suilend::lending_market {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let State { clock, owner_cap, lending_market, prices } = setup({
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
             bag::add(
                 &mut bag, 
@@ -950,24 +1016,28 @@ module suilend::lending_market {
         let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
         );
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
 
-        refresh_reserve_price<LENDING_MARKET, TEST_USDC>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             mock_pyth::get_price_obj<TEST_USDC>(&prices)
         );
-        refresh_reserve_price<LENDING_MARKET, TEST_SUI>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &clock,
             mock_pyth::get_price_obj<TEST_SUI>(&prices)
         );
@@ -975,6 +1045,7 @@ module suilend::lending_market {
         std::debug::print(&lending_market);
         let sui = borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &obligation_owner_cap,
             &clock,
             2_500_000_000,
@@ -987,6 +1058,7 @@ module suilend::lending_market {
 
         let usdc = withdraw_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
             &clock,
             50 * 1_000_000,
@@ -1006,6 +1078,7 @@ module suilend::lending_market {
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 
@@ -1022,7 +1095,7 @@ module suilend::lending_market {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
-        let State { clock, owner_cap, lending_market, prices } = setup({
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
             bag::add(
                 &mut bag, 
@@ -1059,30 +1132,35 @@ module suilend::lending_market {
         let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             coins,
             test_scenario::ctx(&mut scenario)
         );
         deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
 
-        refresh_reserve_price<LENDING_MARKET, TEST_USDC>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             mock_pyth::get_price_obj<TEST_USDC>(&prices)
         );
-        refresh_reserve_price<LENDING_MARKET, TEST_SUI>(
+        refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &clock,
             mock_pyth::get_price_obj<TEST_SUI>(&prices)
         );
 
         let sui = borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             &obligation_owner_cap,
             &clock,
             5 * 1_000_000_000,
@@ -1095,6 +1173,7 @@ module suilend::lending_market {
         update_reserve_config<LENDING_MARKET, TEST_USDC>(
             &owner_cap,
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             {
                 let builder = reserve_config::from(
                     reserve::config(usdc_reserve), 
@@ -1121,6 +1200,8 @@ module suilend::lending_market {
         let usdc = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
             &mut lending_market,
             obligation_id(&obligation_owner_cap),
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             &mut sui,
             test_scenario::ctx(&mut scenario)
@@ -1145,6 +1226,7 @@ module suilend::lending_market {
         test_scenario::next_tx(&mut scenario, owner);
         claim_fees<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             test_scenario::ctx(&mut scenario)
         );
 
@@ -1163,6 +1245,7 @@ module suilend::lending_market {
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 }

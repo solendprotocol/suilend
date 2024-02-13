@@ -57,12 +57,14 @@ module suilend::obligation {
 
     struct Deposit has store {
         coin_type: TypeName,
+        reserve_array_index: u64,
         deposited_ctoken_amount: u64,
         market_value: Decimal,
     }
 
     struct Borrow has store {
         coin_type: TypeName,
+        reserve_array_index: u64,
         borrowed_amount: Decimal,
         cumulative_borrow_rate: Decimal,
         market_value: Decimal
@@ -88,7 +90,7 @@ module suilend::obligation {
     /// called by the lending market prior to any borrow, withdraw, or liquidate operation.
     public(friend) fun refresh<P>(
         obligation: &mut Obligation<P>,
-        reserves: &mut ObjectTable<TypeName, Reserve<P>>,
+        reserves: &mut vector<Reserve<P>>,
         clock: &Clock
     ) {
         let i = 0;
@@ -99,7 +101,7 @@ module suilend::obligation {
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow_mut(&mut obligation.deposits, i);
 
-            let deposit_reserve = object_table::borrow_mut(reserves, deposit.coin_type);
+            let deposit_reserve = vector::borrow_mut(reserves, deposit.reserve_array_index);
 
             reserve::compound_interest(deposit_reserve, clock);
             reserve::assert_price_is_fresh(deposit_reserve, clock);
@@ -145,7 +147,7 @@ module suilend::obligation {
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow_mut(&mut obligation.borrows, i);
 
-            let borrow_reserve = object_table::borrow_mut(reserves, borrow.coin_type);
+            let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
             reserve::compound_interest(borrow_reserve, clock);
             reserve::assert_price_is_fresh(borrow_reserve, clock);
 
@@ -551,6 +553,7 @@ module suilend::obligation {
 
         let borrow = Borrow {
             coin_type: reserve::coin_type(reserve),
+            reserve_array_index: reserve::array_index(reserve),
             borrowed_amount: decimal::from(0),
             cumulative_borrow_rate: reserve::cumulative_borrow_rate(reserve),
             market_value: decimal::from(0)
@@ -572,6 +575,7 @@ module suilend::obligation {
 
         let deposit = Deposit {
             coin_type: reserve::coin_type(reserve),
+            reserve_array_index: reserve::array_index(reserve),
             deposited_ctoken_amount: 0,
             market_value: decimal::from(0)
         };
@@ -581,27 +585,7 @@ module suilend::obligation {
         vector::borrow_mut(&mut obligation.deposits, length - 1)
     }
 
-    #[test_only]
-    public fun destroy_deposit_for_testing(deposit: Deposit) {
-        let Deposit {
-            coin_type: _,
-            deposited_ctoken_amount: _,
-            market_value: _,
-        } = deposit;
-    }
-
     // === Test Functions ===
-    #[test_only]
-    public fun destroy_borrow_for_testing(borrow: Borrow) {
-        let Borrow {
-            coin_type: _,
-            borrowed_amount: _,
-            cumulative_borrow_rate: _,
-            market_value: _,
-        } = borrow;
-    }
-
-    /* == Tests */
     #[test_only]
     struct TEST_MARKET {}
 
@@ -660,6 +644,7 @@ module suilend::obligation {
 
         reserve::create_for_testing<P, TEST_SUI>(
             config,
+            0,
             9,
             decimal::from(10),
             0,
@@ -712,6 +697,7 @@ module suilend::obligation {
 
         reserve::create_for_testing<P, TEST_USDC>(
             config,
+            1,
             6,
             decimal::from(1),
             0,
@@ -764,6 +750,7 @@ module suilend::obligation {
 
         reserve::create_for_testing<P, TEST_USDT>(
             config,
+            2,
             6,
             decimal::from(1),
             0,
@@ -816,6 +803,7 @@ module suilend::obligation {
 
         reserve::create_for_testing<P, TEST_ETH>(
             config,
+            3,
             8,
             decimal::from(2000),
             0,
@@ -829,14 +817,43 @@ module suilend::obligation {
     }
 
     #[test_only]
-    fun reserve_object_table<P>(scenario: &mut Scenario): ObjectTable<TypeName, Reserve<P>> {
-        let table = object_table::new(test_scenario::ctx(scenario));
-        object_table::add(&mut table, type_name::get<TEST_SUI>(), sui_reserve(scenario));
-        object_table::add(&mut table, type_name::get<TEST_USDC>(), usdc_reserve(scenario));
-        object_table::add(&mut table, type_name::get<TEST_USDT>(), usdt_reserve(scenario));
-        object_table::add(&mut table, type_name::get<TEST_ETH>(), eth_reserve(scenario));
+    fun reserves<P>(scenario: &mut Scenario): vector<Reserve<P>> {
+        let v = vector::empty();
+        vector::push_back(&mut v, sui_reserve(scenario));
+        vector::push_back(&mut v,  usdc_reserve(scenario));
+        vector::push_back(&mut v,  usdt_reserve(scenario));
+        vector::push_back(&mut v,  eth_reserve(scenario));
 
-        table
+        v
+    }
+
+    #[test_only]
+    fun get_reserve_array_index<P, T>(reserves: &vector<Reserve<P>>): u64 {
+        let i = 0;
+        while (i < vector::length(reserves)) {
+            let reserve = vector::borrow(reserves, i);
+            if (type_name::get<T>() == reserve::coin_type(reserve)) {
+                return i
+            };
+
+            i = i + 1;
+        };
+
+        i
+    }
+
+    #[test_only]
+    fun get_reserve<P, T>(reserves: &vector<Reserve<P>>): &Reserve<P> {
+        let i = get_reserve_array_index<P, T>(reserves);
+        assert!(i < vector::length(reserves), 0);
+        vector::borrow(reserves, i)
+    }
+
+    #[test_only]
+    fun get_reserve_mut<P, T>(reserves: &mut vector<Reserve<P>>): &mut Reserve<P> {
+        let i = get_reserve_array_index<P, T>(reserves);
+        assert!(i < vector::length(reserves), 0);
+        vector::borrow_mut(reserves, i)
     }
 
 
@@ -1208,12 +1225,12 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserve_table = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserve_table, type_name::get<TEST_SUI>()), 
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000
         );
 
@@ -1221,12 +1238,12 @@ module suilend::obligation {
 
         refresh<TEST_MARKET>(
             &mut obligation,
-            &mut reserve_table,
+            &mut reserves,
             &clock
         );
         debug::print(&obligation);
 
-        test_utils::destroy(reserve_table);
+        test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
         sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
@@ -1244,23 +1261,23 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserves = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             100 * 1_000_000
         );
 
         clock::set_for_testing(&mut clock, 1000); 
         reserve::update_price_for_testing(
-            object_table::borrow_mut(&mut reserves, type_name::get<TEST_SUI>()),
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
             &clock, 
             decimal::from(10), 
             decimal::from(10)
@@ -1289,34 +1306,34 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserves = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             100 * 1_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             100 * 1_000_000
         );
 
         clock::set_for_testing(&mut clock, 1000); 
         reserve::update_price_for_testing(
-            object_table::borrow_mut(&mut reserves, type_name::get<TEST_SUI>()),
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
             &clock, 
             decimal::from(10), 
             decimal::from(9)
         );
         reserve::update_price_for_testing(
-            object_table::borrow_mut(&mut reserves, type_name::get<TEST_USDC>()),
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
             &clock, 
             decimal::from(1), 
             decimal::from(2)
@@ -1371,17 +1388,17 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserves = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             100 * 1_000_000
         );
 
@@ -1392,8 +1409,8 @@ module suilend::obligation {
         );
         liquidate<TEST_MARKET>(
             &mut obligation,
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
 
@@ -1414,28 +1431,28 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserves = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             50 * 1_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDT>()),
+            get_reserve<TEST_MARKET, TEST_USDT>(&mut reserves),
             50 * 1_000_000
         );
 
         let config = {
             let builder = reserve_config::from(
-                reserve::config(object_table::borrow(&reserves, type_name::get<TEST_SUI>())), 
+                reserve::config(get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves)), 
                 test_scenario::ctx(&mut scenario)
             );
             reserve_config::set_open_ltv_pct(&mut builder, 0);
@@ -1444,7 +1461,7 @@ module suilend::obligation {
             reserve_config::build(builder, test_scenario::ctx(&mut scenario))
         };
         reserve::update_reserve_config(
-            object_table::borrow_mut(&mut reserves, type_name::get<TEST_SUI>()), 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves), 
             config
         );
 
@@ -1455,15 +1472,15 @@ module suilend::obligation {
         );
         liquidate<TEST_MARKET>(
             &mut obligation,
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
         // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
-        let sui_deposit = find_deposit(&obligation, object_table::borrow(&reserves, type_name::get<TEST_SUI>()));
+        let sui_deposit = find_deposit(&obligation, get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves));
         assert!(sui_deposit.deposited_ctoken_amount == 95 * 1_000_000_000 + 600_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(956), 4);
 
@@ -1501,26 +1518,26 @@ module suilend::obligation {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 0); 
 
-        let reserves = reserve_object_table<TEST_MARKET>(&mut scenario);
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
         let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             1 * 1_000_000_000 + 100_000_000
         );
         deposit<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_ETH>()),
+            get_reserve<TEST_MARKET, TEST_ETH>(&mut reserves),
             2 * 100_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
             100 * 1_000_000
         );
 
-        let eth_reserve = object_table::borrow_mut(&mut reserves, type_name::get<TEST_ETH>());
+        let eth_reserve = get_reserve_mut<TEST_MARKET, TEST_ETH>(&mut reserves);
         let config = {
             let builder = reserve_config::from(
                 reserve::config(eth_reserve),
@@ -1534,7 +1551,7 @@ module suilend::obligation {
         reserve::update_reserve_config(eth_reserve, config);
 
 
-        let sui_reserve = object_table::borrow_mut(&mut reserves, type_name::get<TEST_SUI>());
+        let sui_reserve = get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves);
         let config = {
             let builder = reserve_config::from(
                 reserve::config(sui_reserve),
@@ -1556,8 +1573,8 @@ module suilend::obligation {
 
         liquidate<TEST_MARKET>(
             &mut obligation,
-            object_table::borrow(&reserves, type_name::get<TEST_USDC>()),
-            object_table::borrow(&reserves, type_name::get<TEST_SUI>()),
+            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
             100 * 1_000_000_000
         );
 

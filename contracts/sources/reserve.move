@@ -55,6 +55,8 @@ module suilend::reserve {
     // === Structs ===
     struct Reserve<phantom P> has key, store {
         id: UID,
+        // array index in lending market's reserve array
+        array_index: u64,
         coin_type: TypeName,
 
         config: Cell<ReserveConfig>,
@@ -106,6 +108,7 @@ module suilend::reserve {
     // === Constructor ===
     public(friend) fun create_reserve<P, T>(
         config: ReserveConfig, 
+        array_index: u64,
         coin_metadata: &CoinMetadata<T>,
         price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
@@ -117,6 +120,7 @@ module suilend::reserve {
 
         let reserve = Reserve {
             id: object::new(ctx),
+            array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
             mint_decimals: coin::get_decimals(coin_metadata),
@@ -148,6 +152,10 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+    public fun array_index<P>(reserve: &Reserve<P>): u64 {
+        reserve.array_index
+    }
+
     public fun available_amount<P>(reserve: &Reserve<P>): u64 {
         reserve.available_amount
     }
@@ -626,6 +634,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
@@ -662,6 +671,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(example_reserve_config()),
             mint_decimals: 9,
@@ -718,6 +728,7 @@ module suilend::reserve {
         
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             example_reserve_config(),
+            0,
             6,
             decimal::from(1),
             0,
@@ -770,6 +781,7 @@ module suilend::reserve {
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
+            0,
             6,
             decimal::from(1),
             0,
@@ -799,6 +811,7 @@ module suilend::reserve {
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             example_reserve_config(),
+            0,
             6,
             decimal::from(1),
             0,
@@ -852,6 +865,7 @@ module suilend::reserve {
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
+            0,
             6,
             decimal::from(1),
             0,
@@ -911,6 +925,7 @@ module suilend::reserve {
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
+            0,
             6,
             decimal::from(1),
             0,
@@ -957,6 +972,7 @@ module suilend::reserve {
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
+            0,
             6,
             decimal::from(1),
             0,
@@ -1017,6 +1033,7 @@ module suilend::reserve {
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
+            0,
             6,
             decimal::from(1),
             0,
@@ -1058,6 +1075,7 @@ module suilend::reserve {
     #[test_only]
     public fun create_for_testing<P, T>(
         config: ReserveConfig,
+        array_index: u64,
         mint_decimals: u8,
         price: Decimal,
         price_last_update_timestamp_s: u64,
@@ -1070,6 +1088,7 @@ module suilend::reserve {
     ): Reserve<P> {
         let reserve = Reserve<P> {
             id: object::new(ctx),
+            array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
             mint_decimals,
