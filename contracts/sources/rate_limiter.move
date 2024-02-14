@@ -26,6 +26,7 @@ module suilend::rate_limiter {
     }
 
     public fun new_config(window_duration: u64, max_outflow: u64): RateLimiterConfig {
+        assert!(window_duration > 0, EInvalidConfig);
         RateLimiterConfig {
             window_duration,
             max_outflow,
@@ -33,7 +34,6 @@ module suilend::rate_limiter {
     }
 
     public fun new(config: RateLimiterConfig, cur_time: u64): RateLimiter {
-        assert!(config.window_duration > 0, EInvalidConfig);
         RateLimiter {
             config,
             prev_qty: decimal::from(0),

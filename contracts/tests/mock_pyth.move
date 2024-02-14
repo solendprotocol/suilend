@@ -2,7 +2,7 @@
 module suilend::mock_pyth {
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
-    use pyth::price::{Self, Price};
+    use pyth::price::{Self};
     use pyth::price_identifier::{Self};
     use pyth::i64::{Self};
     use sui::tx_context::{TxContext};

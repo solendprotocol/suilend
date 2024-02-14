@@ -2,14 +2,13 @@
 module suilend::obligation {
     // === Imports ===
     use std::type_name::{TypeName, Self};
-    use sui::object::{Self, UID, ID};
+    use sui::object::{Self, UID};
     use std::vector::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus};
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le};
-    use sui::object_table::{Self, ObjectTable};
 
     #[test_only]
     use sui::test_scenario::{Self, Scenario};
@@ -1230,7 +1229,7 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000
         );
 
@@ -1266,12 +1265,12 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             100 * 1_000_000
         );
 
@@ -1311,17 +1310,17 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             100 * 1_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             100 * 1_000_000
         );
 
@@ -1393,12 +1392,12 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             100 * 1_000_000
         );
 
@@ -1409,8 +1408,8 @@ module suilend::obligation {
         );
         liquidate<TEST_MARKET>(
             &mut obligation,
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
 
@@ -1436,23 +1435,23 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             50 * 1_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDT>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDT>(&reserves),
             50 * 1_000_000
         );
 
         let config = {
             let builder = reserve_config::from(
-                reserve::config(get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves)), 
+                reserve::config(get_reserve<TEST_MARKET, TEST_SUI>(&reserves)), 
                 test_scenario::ctx(&mut scenario)
             );
             reserve_config::set_open_ltv_pct(&mut builder, 0);
@@ -1472,15 +1471,15 @@ module suilend::obligation {
         );
         liquidate<TEST_MARKET>(
             &mut obligation,
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
         // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
-        let sui_deposit = find_deposit(&obligation, get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves));
+        let sui_deposit = find_deposit(&obligation, get_reserve<TEST_MARKET, TEST_SUI>(&reserves));
         assert!(sui_deposit.deposited_ctoken_amount == 95 * 1_000_000_000 + 600_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(956), 4);
 
@@ -1523,17 +1522,17 @@ module suilend::obligation {
 
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             1 * 1_000_000_000 + 100_000_000
         );
         deposit<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_ETH>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_ETH>(&reserves),
             2 * 100_000_000
         );
         borrow<TEST_MARKET>(
             &mut obligation, 
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
             100 * 1_000_000
         );
 
@@ -1573,8 +1572,8 @@ module suilend::obligation {
 
         liquidate<TEST_MARKET>(
             &mut obligation,
-            get_reserve<TEST_MARKET, TEST_USDC>(&mut reserves),
-            get_reserve<TEST_MARKET, TEST_SUI>(&mut reserves),
+            get_reserve<TEST_MARKET, TEST_USDC>(&reserves),
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
             100 * 1_000_000_000
         );
 

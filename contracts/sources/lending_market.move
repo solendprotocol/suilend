@@ -16,14 +16,15 @@ module suilend::lending_market {
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
-    use std::type_name::{Self, TypeName};
+    use std::type_name::{Self};
     use std::vector::{Self};
+    use std::option::{Self, Option};
 
     // === Errors ===
     const ENotAOneTimeWitness: u64 = 0;
     const EIncorrectVersion: u64 = 1;
     const ETooSmall: u64 = 2;
-    const EWrongType: u64 = 3;
+    const EWrongType: u64 = 3; // I don't think these assertions are necessary
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -49,6 +50,15 @@ module suilend::lending_market {
     struct ObligationOwnerCap<phantom P> has key, store {
         id: UID,
         obligation_id: ID
+    }
+
+    // cTokens redemptions and borrows are rate limited to mitigate exploits. however, 
+    // on a liquidation we don't want to rate limit redemptions because we don't want liquidators to 
+    // get stuck holding cTokens. So the liquidate function issues this exemption 
+    // to the liquidator. This object can't' be stored or transferred -- only dropped or consumed 
+    // in the same tx block.
+    struct RateLimiterExemption<phantom P, phantom T> has drop {
+        amount: u64
     }
 
     // === Events ===
@@ -195,6 +205,7 @@ module suilend::lending_market {
         reserve_array_index: u64,
         clock: &Clock,
         ctokens: Coin<CToken<P, T>>,
+        rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
         ctx: &mut TxContext
     ): Coin<T> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
@@ -206,6 +217,23 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
+
+        let exempt_from_rate_limiter = false;
+        if (option::is_some(&rate_limiter_exemption)) {
+            let exemption = option::borrow_mut(&mut rate_limiter_exemption);
+            if (exemption.amount >= ctoken_amount) {
+                exempt_from_rate_limiter = true;
+            };
+        };
+
+        if (!exempt_from_rate_limiter) {
+            rate_limiter::process_qty(
+                &mut lending_market.rate_limiter, 
+                clock::timestamp_ms(clock) / 1000,
+                reserve::ctoken_market_value_upper_bound(reserve, ctoken_amount)
+            );
+        };
+
         let liquidity = reserve::redeem_ctokens<P, T>(
             reserve, 
             coin::into_balance(ctokens)
@@ -320,13 +348,6 @@ module suilend::lending_market {
 
         obligation::withdraw<P>(obligation, reserve, amount);
 
-        let withdraw_value = reserve::ctoken_market_value_upper_bound(reserve, amount);
-        rate_limiter::process_qty(
-            &mut lending_market.rate_limiter, 
-            clock::timestamp_ms(clock) / 1000,
-            withdraw_value
-        );
-
         event::emit(WithdrawEvent<P, T> {
             ctoken_amount: amount,
             obligation_id: obligation_owner_cap.obligation_id,
@@ -346,7 +367,7 @@ module suilend::lending_market {
         clock: &Clock,
         repay_coins: &mut Coin<Repay>, // mut because we probably won't use all of it
         ctx: &mut TxContext
-    ): Coin<CToken<P, Withdraw>> {
+    ): (Coin<CToken<P, Withdraw>>, RateLimiterExemption<P, Withdraw>) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(repay_coins) > 0, ETooSmall);
 
@@ -387,7 +408,8 @@ module suilend::lending_market {
             caller: tx_context::sender(ctx)
         });
 
-        coin::from_balance(ctokens, ctx)
+        let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
+        (coin::from_balance(ctokens, ctx), exemption)
     }
 
     public fun repay<P, T>(
@@ -805,6 +827,7 @@ module suilend::lending_market {
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &clock,
             ctokens,
+            option::none(),
             test_scenario::ctx(&mut scenario)
         );
         assert!(coin::value(&tokens) == 100 * 1_000_000, 0);
@@ -1197,7 +1220,7 @@ module suilend::lending_market {
 
         // liquidate the obligation
         let sui = coin::mint_for_testing<TEST_SUI>(5 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let usdc = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
+        let (usdc, exemption) = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
             &mut lending_market,
             obligation_id(&obligation_owner_cap),
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
@@ -1209,6 +1232,7 @@ module suilend::lending_market {
 
         assert!(coin::value(&sui) == 4 * 1_000_000_000, 0);
         assert!(coin::value(&usdc) == 10 * 1_000_000 + 500_000, 0);
+        assert!(exemption.amount == 10 * 1_000_000 + 500_000, 0);
 
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
 
@@ -1221,6 +1245,24 @@ module suilend::lending_market {
         assert!(reserve_borrowed_amount == sub(old_reserve_borrowed_amount, decimal::from(1_000_000_000)), 0);
         assert!(borrowed_amount == sub(old_borrowed_amount, decimal::from(1_000_000_000)), 0);
         assert!(deposited_amount == old_deposited_amount - 11 * 1_000_000, 0);
+
+        // check to see if we can do a full redeem even with rate limiter is disabled
+        update_rate_limiter_config<LENDING_MARKET>(
+            &owner_cap,
+            &mut lending_market,
+            &clock,
+            rate_limiter::new_config(1, 0) // disabled
+        );
+
+        let tokens = redeem_ctokens_and_withdraw_liquidity<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            usdc,
+            option::some(exemption),
+            test_scenario::ctx(&mut scenario)
+        );
+        assert!(coin::value(&tokens) == 10 * 1_000_000 + 500_000, 0);
 
         // claim fees
         test_scenario::next_tx(&mut scenario, owner);
@@ -1239,7 +1281,7 @@ module suilend::lending_market {
 
         test_utils::destroy(ctoken_fees);
         test_utils::destroy(sui);
-        test_utils::destroy(usdc);
+        test_utils::destroy(tokens);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);

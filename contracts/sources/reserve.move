@@ -897,8 +897,8 @@ module suilend::reserve {
             BalanceKey {}
         );
 
-        assert!(balance::value(&mut balances.available_amount) == available_amount_old - 404, 0);
-        assert!(balance::value(&mut balances.fees) == 4, 0);
+        assert!(balance::value(&balances.available_amount) == available_amount_old - 404, 0);
+        assert!(balance::value(&balances.fees) == 4, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(tokens);
@@ -1064,7 +1064,7 @@ module suilend::reserve {
             &mut reserve.id, 
             BalanceKey {}
         );
-        assert!(balance::value(&mut balances.available_amount) == available_amount_old + 400, 0);
+        assert!(balance::value(&balances.available_amount) == available_amount_old + 400, 0);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(ctokens);
