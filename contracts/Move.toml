@@ -1,6 +1,7 @@
 [package]
 name = "suilend"
 version = "0.0.1"
+published-at = "0x0ae5353292dac0d55c40185b4a25a589e187d0f5f34179e4c8f3ccd77dabc9d5"
 
 [dependencies.Sui]
 git = "https://github.com/MystenLabs/sui.git"
@@ -12,11 +13,6 @@ override = true
 git = "https://github.com/0xripleys/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
 rev = "7e72f2754ffdb9138ac2d9ba11a014e7638132f2"
-
-# [dependencies.Pyth]
-# git = "https://github.com/0xripleys/pyth-crosschain.git"
-# subdir = "target_chains/sui/contracts"
-# rev = "420bd4e0a6071b2ad137a992a665963b0a8dfc3a"
 
 [addresses]
 sui = "0x2"
