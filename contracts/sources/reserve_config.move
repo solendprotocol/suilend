@@ -96,11 +96,13 @@ module suilend::reserve_config {
         assert!(*vector::borrow(utils, 0) == 0, EInvalidReserveConfig);
         assert!(*vector::borrow(utils, length-1) == 100, EInvalidReserveConfig);
 
-        // check that both vectors are strictly increasing
+        // check that:
+        // - utils is strictly increasing
+        // - aprs is monotonically increasing
         let i = 1;
         while (i < length) {
             assert!(*vector::borrow(utils, i - 1) < *vector::borrow(utils, i), EInvalidReserveConfig);
-            assert!(*vector::borrow(aprs, i - 1) < *vector::borrow(aprs, i), EInvalidReserveConfig);
+            assert!(*vector::borrow(aprs, i - 1) <= *vector::borrow(aprs, i), EInvalidReserveConfig);
 
             i = i + 1;
         }
