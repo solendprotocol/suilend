@@ -1006,6 +1006,12 @@ module suilend::reserve {
         assert!(reserve.available_amount == old_available_amount - 125_000, 0);
         assert!(reserve.unclaimed_spread_fees == sub(old_unclaimed_spread_fees, decimal::from(125_000)), 0);
 
+        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+        assert!(balance::value(&balances.available_amount) == old_available_amount - 125_000, 0);
+
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(ctoken_fees);
         sui::test_utils::destroy(fees);
