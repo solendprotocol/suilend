@@ -25,6 +25,7 @@ module suilend::lending_market {
     const EIncorrectVersion: u64 = 1;
     const ETooSmall: u64 = 2;
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
+    const EDuplicateReserve: u64 = 4;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -487,6 +488,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
 
         let reserve = reserve::create_reserve<P, T>(
             config, 
@@ -607,6 +609,61 @@ module suilend::lending_market {
     struct ReserveArgs has store {
         config: ReserveConfig,
         initial_deposit: u64
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EDuplicateReserve)]
+    fun duplicate_reserves() {
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::reserve_config::{Self};
+        use sui::test_utils::{Self};
+        use suilend::mock_pyth::{Self};
+        use suilend::mock_metadata::{Self};
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let metadata = mock_metadata::init_metadata(test_scenario::ctx(&mut scenario));
+
+        let (owner_cap, lending_market) = create_lending_market(
+            LENDING_MARKET {},
+            tx_context::sender(test_scenario::ctx(&mut scenario)),
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let prices = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
+        mock_pyth::register<TEST_USDC>(&mut prices, test_scenario::ctx(&mut scenario));
+        mock_pyth::register<TEST_SUI>(&mut prices, test_scenario::ctx(&mut scenario));
+
+        add_reserve<LENDING_MARKET, TEST_USDC>(
+            &owner_cap,
+            &mut lending_market,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices),
+            reserve_config::default_reserve_config(),
+            mock_metadata::get<TEST_USDC>(&metadata),
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        add_reserve<LENDING_MARKET, TEST_USDC>(
+            &owner_cap,
+            &mut lending_market,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices),
+            reserve_config::default_reserve_config(),
+            mock_metadata::get<TEST_USDC>(&metadata),
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(metadata);
+        test_scenario::end(scenario);
     }
 
     #[test_only]

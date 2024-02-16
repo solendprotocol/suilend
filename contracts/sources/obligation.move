@@ -474,7 +474,7 @@ module suilend::obligation {
         let i = 0;
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
-            if (deposit.coin_type == reserve::coin_type(reserve)) {
+            if (deposit.reserve_array_index == reserve::array_index(reserve)) {
                 return i
             };
 
@@ -491,7 +491,7 @@ module suilend::obligation {
         let i = 0;
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
-            if (borrow.coin_type == reserve::coin_type(reserve)) {
+            if (borrow.reserve_array_index == reserve::array_index(reserve)) {
                 return i
             };
 
