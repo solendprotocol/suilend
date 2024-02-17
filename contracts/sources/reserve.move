@@ -96,13 +96,14 @@ module suilend::reserve {
     }
 
     // === Events ===
-    struct InterestUpdateEvent<phantom P> has drop, copy {
-        reserve_id: ID,
+    struct InterestUpdateEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
         cumulative_borrow_rate: Decimal,
         available_amount: u64,
         borrowed_amount: Decimal,
+        unclaimed_spread_fees: Decimal,
         ctoken_supply: u64,
-        timestamp_s: u64
     }
 
     // === Constructor ===
@@ -408,13 +409,14 @@ module suilend::reserve {
 
         reserve.interest_last_update_timestamp_s = cur_time_s;
 
-        event::emit(InterestUpdateEvent<P> {
-            reserve_id: object::uid_to_inner(&reserve.id),
+        event::emit(InterestUpdateEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: reserve.coin_type,
             cumulative_borrow_rate: reserve.cumulative_borrow_rate,
             available_amount: reserve.available_amount,
             borrowed_amount: reserve.borrowed_amount,
+            unclaimed_spread_fees: reserve.unclaimed_spread_fees,
             ctoken_supply: reserve.ctoken_supply,
-            timestamp_s: cur_time_s
         });
     }
 

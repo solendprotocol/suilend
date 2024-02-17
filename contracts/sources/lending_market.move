@@ -16,7 +16,7 @@ module suilend::lending_market {
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
-    use std::type_name::{Self};
+    use std::type_name::{Self, TypeName};
     use std::vector::{Self};
     use std::option::{Self, Option};
 
@@ -63,47 +63,55 @@ module suilend::lending_market {
     }
 
     // === Events ===
-    struct MintEvent<phantom P, phantom T> has drop, copy {
-        in_liquidity_amount: u64,
-        out_ctoken_amount: u64,
-        caller: address
+    struct MintEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
+        liquidity_amount: u64,
+        ctoken_amount: u64,
     }
 
-    struct RedeemEvent<phantom P, phantom T> has drop, copy {
-        in_ctoken_amount: u64,
-        out_liquidity_amount: u64,
-        caller: address
+    struct RedeemEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
+        ctoken_amount: u64,
+        liquidity_amount: u64,
     }
 
-    struct DepositEvent<phantom P, phantom T> has drop, copy {
+    struct DepositEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
         ctoken_amount: u64,
         obligation_id: ID,
-        caller: address
     }
 
-    struct WithdrawEvent<phantom P, phantom T> has drop, copy {
+    struct WithdrawEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
         ctoken_amount: u64,
         obligation_id: ID,
-        caller: address
     }
 
-    struct BorrowEvent<phantom P, phantom T> has drop, copy {
+    struct BorrowEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
         liquidity_amount: u64,
         obligation_id: ID,
-        caller: address
     }
 
-    struct RepayEvent<phantom P, phantom T> has drop, copy {
+    struct RepayEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
         liquidity_amount: u64,
         obligation_id: ID,
-        caller: address
     }
 
-    struct LiquidateEvent<phantom P, phantom RepayType, phantom WithdrawType> has drop, copy {
+    struct LiquidateEvent has drop, copy {
+        lending_market: TypeName,
+        repay_coin_type: TypeName,
         repay_amount: u64,
+        withdraw_coin_type: TypeName,
         withdraw_amount: u64,
         obligation_id: ID,
-        caller: address,
     }
 
     // === Public-Mutative Functions ===
@@ -192,10 +200,11 @@ module suilend::lending_market {
 
         assert!(balance::value(&ctokens) > 0, ETooSmall);
 
-        event::emit(MintEvent<P, T> {
-            in_liquidity_amount: deposit_amount,
-            out_ctoken_amount: balance::value(&ctokens),
-            caller: tx_context::sender(ctx)
+        event::emit(MintEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
+            liquidity_amount: deposit_amount,
+            ctoken_amount: balance::value(&ctokens),
         });
 
         coin::from_balance(ctokens, ctx)
@@ -242,10 +251,11 @@ module suilend::lending_market {
 
         assert!(balance::value(&liquidity) > 0, ETooSmall);
 
-        event::emit(RedeemEvent<P, T> {
-            in_ctoken_amount: ctoken_amount,
-            out_liquidity_amount: balance::value(&liquidity),
-            caller: tx_context::sender(ctx)
+        event::emit(RedeemEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
+            ctoken_amount,
+            liquidity_amount: balance::value(&liquidity),
         });
 
         coin::from_balance(liquidity, ctx)
@@ -270,10 +280,11 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id
         );
 
-        event::emit(DepositEvent<P, T> {
+        event::emit(DepositEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
             ctoken_amount: coin::value(&deposit),
             obligation_id: obligation_owner_cap.obligation_id,
-            caller: tx_context::sender(ctx)
         });
 
         obligation::deposit<P>(
@@ -318,10 +329,11 @@ module suilend::lending_market {
             borrow_value
         );
 
-        event::emit(BorrowEvent<P, T> {
+        event::emit(BorrowEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
             liquidity_amount: borrow_amount_with_fees,
             obligation_id: obligation_owner_cap.obligation_id,
-            caller: tx_context::sender(ctx)
         });
 
         coin::from_balance(receive_balance, ctx)
@@ -349,10 +361,11 @@ module suilend::lending_market {
 
         obligation::withdraw<P>(obligation, reserve, amount);
 
-        event::emit(WithdrawEvent<P, T> {
+        event::emit(WithdrawEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
             ctoken_amount: amount,
             obligation_id: obligation_owner_cap.obligation_id,
-            caller: tx_context::sender(ctx)
         });
 
         let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
@@ -402,11 +415,13 @@ module suilend::lending_market {
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
         reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
 
-        event::emit(LiquidateEvent<P, Repay, Withdraw> {
+        event::emit(LiquidateEvent {
+            lending_market: type_name::get<P>(),
+            repay_coin_type: type_name::get<Repay>(),
             repay_amount: required_repay_amount,
+            withdraw_coin_type: type_name::get<Withdraw>(),
             withdraw_amount: withdraw_ctoken_amount,
             obligation_id,
-            caller: tx_context::sender(ctx)
         });
 
         let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
@@ -423,10 +438,11 @@ module suilend::lending_market {
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        event::emit(RepayEvent<P, T> {
+        event::emit(RepayEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
             liquidity_amount: coin::value(&repay_coins),
             obligation_id,
-            caller: tx_context::sender(ctx)
         });
 
         let obligation = object_table::borrow_mut(
