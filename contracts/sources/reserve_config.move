@@ -18,6 +18,7 @@ module suilend::reserve_config {
         borrow_weight_bps: u64,
         deposit_limit: u64,
         borrow_limit: u64,
+        // extra withdraw amount as bonus for liquidators
         liquidation_bonus_bps: u64,
 
         // interest params
@@ -28,6 +29,7 @@ module suilend::reserve_config {
         // fees
         borrow_fee_bps: u64,
         spread_fee_bps: u64,
+        // extra withdraw amount as fee for protocol on liquidations
         protocol_liquidation_fee_bps: u64,
 
         additional_fields: Bag
@@ -76,11 +78,10 @@ module suilend::reserve_config {
         assert!(config.open_ltv_pct <= config.close_ltv_pct, EInvalidReserveConfig);
 
         assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_bonus_bps <= 2_000, EInvalidReserveConfig);
+        assert!(config.liquidation_bonus_bps + config.protocol_liquidation_fee_bps <= 2_000, EInvalidReserveConfig);
 
         assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
         assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
-        assert!(config.protocol_liquidation_fee_bps <= 10_000, EInvalidReserveConfig);
 
         validate_utils_and_aprs(&config.interest_rate_utils, &config.interest_rate_aprs);
     }
@@ -309,13 +310,13 @@ module suilend::reserve_config {
             // borrow_limit
             18_446_744_073_709_551_615u64,
             // liquidation bonus pct
-            10,
+            200,
             // borrow fee bps
             0,
             // spread fee bps
             0,
             // liquidation fee bps
-            5000,
+            300,
             // utils
             {
                 let v = vector::empty();
@@ -390,7 +391,7 @@ module suilend::reserve_config {
             5,
             10,
             2000,
-            3000,
+            30,
             utils,
             aprs,
             test_scenario::ctx(&mut scenario)
@@ -464,14 +465,14 @@ module suilend::reserve_config {
             1,
             // borrow_limit
             1,
-            // liquidation bonus pct
-            5,
+            // liquidation bonus bps
+            300,
             // borrow fee bps
             10,
             // spread fee bps
             2000,
             // liquidation fee bps
-            3000,
+            200,
             // utils
             {
                 let v = vector::empty();
@@ -483,7 +484,7 @@ module suilend::reserve_config {
             {
                 let v = vector::empty();
                 vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 31536000);
+                vector::push_back(&mut v, 0);
                 v
             },
             test_scenario::ctx(&mut scenario)

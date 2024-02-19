@@ -1265,7 +1265,8 @@ module suilend::lending_market {
                 );
                 reserve_config::set_open_ltv_pct(&mut builder, 0);
                 reserve_config::set_close_ltv_pct(&mut builder, 0);
-                reserve_config::set_liquidation_bonus_bps(&mut builder, 1_000);
+                reserve_config::set_liquidation_bonus_bps(&mut builder, 400);
+                reserve_config::set_protocol_liquidation_fee_bps(&mut builder, 600);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             }
@@ -1292,8 +1293,8 @@ module suilend::lending_market {
         );
 
         assert!(coin::value(&sui) == 4 * 1_000_000_000, 0);
-        assert!(coin::value(&usdc) == 10 * 1_000_000 + 500_000, 0);
-        assert!(exemption.amount == 10 * 1_000_000 + 500_000, 0);
+        assert!(coin::value(&usdc) == 10 * 1_000_000 + 400_000, 0);
+        assert!(exemption.amount == 10 * 1_000_000 + 400_000, 0);
 
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
 
@@ -1323,7 +1324,7 @@ module suilend::lending_market {
             option::some(exemption),
             test_scenario::ctx(&mut scenario)
         );
-        assert!(coin::value(&tokens) == 10 * 1_000_000 + 500_000, 0);
+        assert!(coin::value(&tokens) == 10 * 1_000_000 + 400_000, 0);
 
         // claim fees
         test_scenario::next_tx(&mut scenario, owner);
@@ -1338,7 +1339,7 @@ module suilend::lending_market {
             &scenario, 
             lending_market.fee_receiver
         );
-        assert!(coin::value(&ctoken_fees) == 500_000, 0);
+        assert!(coin::value(&ctoken_fees) == 600_000, 0);
 
         test_utils::destroy(ctoken_fees);
         test_utils::destroy(sui);

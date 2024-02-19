@@ -332,9 +332,10 @@ module suilend::reserve {
         ctokens: &mut Balance<CToken<P, T>>,
     ) {
         let bonus = liquidation_bonus(config(reserve));
+        let protocol_liquidation_fee = protocol_liquidation_fee(config(reserve));
         let take_rate = div(
-            mul(bonus, protocol_liquidation_fee(config(reserve))),
-            add(decimal::from(1), bonus)
+            protocol_liquidation_fee,
+            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
         );
 
         let fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
@@ -579,7 +580,7 @@ module suilend::reserve {
             // spread fee bps
             2000,
             // liquidation fee bps
-            3000,
+            30,
             // utils
             {
                 let v = vector::empty();

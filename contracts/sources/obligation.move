@@ -6,7 +6,7 @@ module suilend::obligation {
     use std::vector::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
-    use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus};
+    use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus, protocol_liquidation_fee};
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le};
 
@@ -350,9 +350,14 @@ module suilend::obligation {
         };
 
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
+        let bonus = add(
+            liquidation_bonus(config(withdraw_reserve)),
+            protocol_liquidation_fee(config(withdraw_reserve))
+        );
+
         let withdraw_value = mul(
             repay_value, 
-            add(decimal::from(1), liquidation_bonus(config(withdraw_reserve)))
+            add(decimal::from(1), bonus)
         );
 
         let final_repay_amount;
