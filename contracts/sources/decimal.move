@@ -127,7 +127,7 @@ module suilend::decimal {
 
 #[test_only]
 module suilend::decimal_tests {
-    use suilend::decimal::{Self, add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent};
+    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent};
 
     #[test]
     fun test_basic() {

@@ -7,7 +7,6 @@ module suilend::lending_market {
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
-    use sui::types;
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
     use suilend::reserve::{Self, Reserve, CToken};
@@ -20,8 +19,10 @@ module suilend::lending_market {
     use std::vector::{Self};
     use std::option::{Self, Option};
 
+    // === Friends ===
+    friend suilend::lending_market_registry;
+
     // === Errors ===
-    const ENotAOneTimeWitness: u64 = 0;
     const EIncorrectVersion: u64 = 1;
     const ETooSmall: u64 = 2;
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
@@ -31,7 +32,7 @@ module suilend::lending_market {
     const CURRENT_VERSION: u64 = 1;
 
     // === Structs ===
-    struct LendingMarket<phantom P> has key {
+    struct LendingMarket<phantom P> has key, store {
         id: UID,
         version: u64,
 
@@ -115,20 +116,17 @@ module suilend::lending_market {
     }
 
     // === Public-Mutative Functions ===
-    public fun create_lending_market<P: drop>(
-        witness: P, 
-        fee_receiver: address,
-        ctx: &mut TxContext
-    ): (LendingMarketOwnerCap<P>, LendingMarket<P>) {
-        assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
-
+    public(friend) fun create_lending_market<P>(ctx: &mut TxContext): (
+        LendingMarketOwnerCap<P>, 
+        LendingMarket<P>
+    ) {
         let lending_market = LendingMarket<P> {
             id: object::new(ctx),
             version: CURRENT_VERSION,
             reserves: vector::empty(),
             obligations: object_table::new(ctx),
             rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0),
-            fee_receiver
+            fee_receiver: tx_context::sender(ctx)
         };
         
         let owner_cap = LendingMarketOwnerCap<P> { 
@@ -137,14 +135,6 @@ module suilend::lending_market {
         };
 
         (owner_cap, lending_market)
-    }
-
-    public fun share_lending_market<P>(
-        _: &LendingMarketOwnerCap<P>,
-        lending_market: LendingMarket<P>, 
-    ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        transfer::share_object(lending_market)
     }
 
     /// Cache the price from pyth onto the reserve object. this needs to be done for all
@@ -267,7 +257,7 @@ module suilend::lending_market {
         reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         deposit: Coin<CToken<P, T>>,
-        ctx: &mut TxContext
+        _ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
@@ -434,7 +424,7 @@ module suilend::lending_market {
         obligation_id: ID,
         clock: &Clock,
         repay_coins: Coin<T>,
-        ctx: &mut TxContext
+        _ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -598,9 +588,7 @@ module suilend::lending_market {
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
-        let (owner_cap, lending_market) = create_lending_market(
-            LENDING_MARKET {},
-            owner,
+        let (owner_cap, lending_market) = create_lending_market<LENDING_MARKET>(
             test_scenario::ctx(&mut scenario)
         );
 
@@ -636,7 +624,6 @@ module suilend::lending_market {
         use sui::test_utils::{Self};
         use suilend::mock_pyth::{Self};
         use suilend::mock_metadata::{Self};
-        use std::type_name::{Self};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
@@ -644,9 +631,7 @@ module suilend::lending_market {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         let metadata = mock_metadata::init_metadata(test_scenario::ctx(&mut scenario));
 
-        let (owner_cap, lending_market) = create_lending_market(
-            LENDING_MARKET {},
-            tx_context::sender(test_scenario::ctx(&mut scenario)),
+        let (owner_cap, lending_market) = create_lending_market<LENDING_MARKET>(
             test_scenario::ctx(&mut scenario)
         );
 
@@ -696,9 +681,7 @@ module suilend::lending_market {
         let clock = clock::create_for_testing(test_scenario::ctx(scenario));
         let metadata = mock_metadata::init_metadata(test_scenario::ctx(scenario));
 
-        let (owner_cap, lending_market) = create_lending_market(
-            LENDING_MARKET {},
-            tx_context::sender(test_scenario::ctx(scenario)),
+        let (owner_cap, lending_market) = create_lending_market<LENDING_MARKET>(
             test_scenario::ctx(scenario)
         );
 

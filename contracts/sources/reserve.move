@@ -5,7 +5,7 @@ module suilend::reserve {
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
     use sui::tx_context::{TxContext};
-    use sui::object::{Self, UID, ID};
+    use sui::object::{Self, UID};
     use suilend::cell::{Self, Cell};
     use std::option::{Self};
     use sui::event::{Self};
