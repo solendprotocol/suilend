@@ -20,8 +20,8 @@ module suilend::obligation {
     friend suilend::lending_market;
 
     // === Errors ===
-    const EObligationIsNotHealthy: u64 = 0;
-    const EObligationIsHealthy: u64 = 1;
+    const EObligationIsNotLiquidatable: u64 = 0;
+    const EObligationIsNotHealthy: u64 = 1;
     const EBorrowNotFound: u64 = 2;
     const EDepositNotFound: u64 = 3;
 
@@ -323,7 +323,7 @@ module suilend::obligation {
         withdraw_reserve: &Reserve<P>,
         repay_amount: u64,
     ): (u64, u64) {
-        assert!(is_unhealthy(obligation), EObligationIsHealthy);
+        assert!(is_liquidatable(obligation), EObligationIsNotLiquidatable);
 
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
@@ -413,7 +413,7 @@ module suilend::obligation {
         le(obligation.weighted_borrowed_value_upper_bound_usd, obligation.allowed_borrow_value_usd)
     }
 
-    public fun is_unhealthy<P>(obligation: &Obligation<P>): bool {
+    public fun is_liquidatable<P>(obligation: &Obligation<P>): bool {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
@@ -1376,7 +1376,7 @@ module suilend::obligation {
     }
 
     #[test]
-    #[expected_failure(abort_code = EObligationIsHealthy)]
+    #[expected_failure(abort_code = EObligationIsNotLiquidatable)]
     public fun test_liquidate_fail_healthy() {
         use sui::test_scenario::{Self};
         use sui::clock::{Self};
