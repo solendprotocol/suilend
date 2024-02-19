@@ -18,6 +18,7 @@ module suilend::lending_market {
     use std::type_name::{Self, TypeName};
     use std::vector::{Self};
     use std::option::{Self, Option};
+    use sui::package;
 
     // === Friends ===
     friend suilend::lending_market_registry;
@@ -30,6 +31,13 @@ module suilend::lending_market {
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
+
+    // === One time Witness ===
+    struct LENDING_MARKET has drop {}
+
+    fun init(otw: LENDING_MARKET, ctx: &mut TxContext) {
+        package::claim_and_keep(otw, ctx);
+    }
 
     // === Structs ===
     struct LendingMarket<phantom P> has key, store {
@@ -573,9 +581,6 @@ module suilend::lending_market {
         let LendingMarketOwnerCap { id, lending_market_id: _ } = lending_market_owner_cap;
         object::delete(id);
     }
-
-    #[test_only]
-    struct LENDING_MARKET has drop {}
 
     #[test_only]
     use sui::test_scenario::{Self, Scenario};
