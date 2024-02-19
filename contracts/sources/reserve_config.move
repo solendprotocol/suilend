@@ -28,7 +28,7 @@ module suilend::reserve_config {
         // fees
         borrow_fee_bps: u64,
         spread_fee_bps: u64,
-        liquidation_fee_bps: u64,
+        protocol_liquidation_fee_bps: u64,
 
         additional_fields: Bag
     }
@@ -46,7 +46,7 @@ module suilend::reserve_config {
         liquidation_bonus_bps: u64,
         borrow_fee_bps: u64, 
         spread_fee_bps: u64, 
-        liquidation_fee_bps: u64, 
+        protocol_liquidation_fee_bps: u64, 
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
         ctx: &mut TxContext
@@ -62,7 +62,7 @@ module suilend::reserve_config {
             interest_rate_aprs,
             borrow_fee_bps,
             spread_fee_bps,
-            liquidation_fee_bps,
+            protocol_liquidation_fee_bps,
             additional_fields: bag::new(ctx)
         };
 
@@ -80,7 +80,7 @@ module suilend::reserve_config {
 
         assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
         assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_fee_bps <= 10_000, EInvalidReserveConfig);
+        assert!(config.protocol_liquidation_fee_bps <= 10_000, EInvalidReserveConfig);
 
         validate_utils_and_aprs(&config.interest_rate_utils, &config.interest_rate_aprs);
     }
@@ -136,8 +136,8 @@ module suilend::reserve_config {
         decimal::from_bps(config.borrow_fee_bps)
     }
 
-    public fun liquidation_fee(config: &ReserveConfig): Decimal {
-        decimal::from_bps(config.liquidation_fee_bps)
+    public fun protocol_liquidation_fee(config: &ReserveConfig): Decimal {
+        decimal::from_bps(config.protocol_liquidation_fee_bps)
     }
 
     public fun spread_fee(config: &ReserveConfig): Decimal {
@@ -190,7 +190,7 @@ module suilend::reserve_config {
             interest_rate_aprs: _,
             borrow_fee_bps: _,
             spread_fee_bps: _,
-            liquidation_fee_bps: _,
+            protocol_liquidation_fee_bps: _,
             additional_fields
         } = config;
 
@@ -211,7 +211,7 @@ module suilend::reserve_config {
 
         set_borrow_fee_bps(&mut builder, config.borrow_fee_bps);
         set_spread_fee_bps(&mut builder, config.spread_fee_bps);
-        set_liquidation_fee_bps(&mut builder, config.liquidation_fee_bps);
+        set_protocol_liquidation_fee_bps(&mut builder, config.protocol_liquidation_fee_bps);
 
         builder
     }
@@ -265,8 +265,8 @@ module suilend::reserve_config {
         set(builder, b"spread_fee_bps", spread_fee_bps);
     }
 
-    public fun set_liquidation_fee_bps(builder: &mut ReserveConfigBuilder, liquidation_fee_bps: u64) {
-        set(builder, b"liquidation_fee_bps", liquidation_fee_bps);
+    public fun set_protocol_liquidation_fee_bps(builder: &mut ReserveConfigBuilder, protocol_liquidation_fee_bps: u64) {
+        set(builder, b"protocol_liquidation_fee_bps", protocol_liquidation_fee_bps);
     }
 
     public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
@@ -279,7 +279,7 @@ module suilend::reserve_config {
             bag::remove(&mut builder.fields, b"liquidation_bonus_bps"),
             bag::remove(&mut builder.fields, b"borrow_fee_bps"),
             bag::remove(&mut builder.fields, b"spread_fee_bps"),
-            bag::remove(&mut builder.fields, b"liquidation_fee_bps"),
+            bag::remove(&mut builder.fields, b"protocol_liquidation_fee_bps"),
             bag::remove(&mut builder.fields, b"interest_rate_utils"),
             bag::remove(&mut builder.fields, b"interest_rate_aprs"),
             tx_context

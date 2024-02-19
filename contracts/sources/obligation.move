@@ -32,7 +32,9 @@ module suilend::obligation {
     struct Obligation<phantom P> has key, store {
         id: UID,
 
+        /// all deposits in the obligation. there is at most one deposit per coin type
         deposits: vector<Deposit>,
+        /// all borrows in the obligation. there is at most one deposit per coin type
         borrows: vector<Borrow>,
 
         /// value of all deposits in USD
@@ -48,9 +50,10 @@ module suilend::obligation {
 
         /// value of all borrows in USD
         unweighted_borrowed_value_usd: Decimal,
-        /// weighted value of all borrows in USD
+        /// weighted value of all borrows in USD. used when checking if an obligation is liquidatable
         weighted_borrowed_value_usd: Decimal,
         /// weighted value of all borrows in USD, but using the upper bound of the market value
+        /// used to limit borrows and withdraws
         weighted_borrowed_value_upper_bound_usd: Decimal,
     }
 

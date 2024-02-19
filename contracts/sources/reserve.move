@@ -23,7 +23,7 @@ module suilend::reserve {
         deposit_limit, 
         borrow_limit, 
         borrow_fee,
-        liquidation_fee,
+        protocol_liquidation_fee,
         spread_fee,
         liquidation_bonus
     };
@@ -333,7 +333,7 @@ module suilend::reserve {
     ) {
         let bonus = liquidation_bonus(config(reserve));
         let take_rate = div(
-            mul(bonus, liquidation_fee(config(reserve))),
+            mul(bonus, protocol_liquidation_fee(config(reserve))),
             add(decimal::from(1), bonus)
         );
 
