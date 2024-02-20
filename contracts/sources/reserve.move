@@ -21,7 +21,9 @@ module suilend::reserve {
         ReserveConfig, 
         calculate_apr, 
         deposit_limit, 
+        deposit_limit_usd, 
         borrow_limit, 
+        borrow_limit_usd, 
         borrow_fee,
         protocol_liquidation_fee,
         spread_fee,
@@ -461,8 +463,15 @@ module suilend::reserve {
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
         reserve.ctoken_supply = reserve.ctoken_supply + new_ctokens;
 
+        let total_supply = total_supply(reserve);
         assert!(
-            le(total_supply(reserve), decimal::from(deposit_limit(config(reserve)))), 
+            le(total_supply, decimal::from(deposit_limit(config(reserve)))), 
+            EDepositLimitExceeded
+        );
+
+        let total_supply_usd = market_value_upper_bound(reserve, total_supply);
+        assert!(
+            le(total_supply_usd, decimal::from(deposit_limit_usd(config(reserve)))), 
             EDepositLimitExceeded
         );
 
@@ -514,6 +523,18 @@ module suilend::reserve {
             le(reserve.borrowed_amount, decimal::from(borrow_limit(config(reserve)))), 
             EBorrowLimitExceeded 
         );
+
+        let borrowed_amount = reserve.borrowed_amount;
+        std::debug::print(&borrowed_amount);
+        std::debug::print(&market_value_upper_bound(reserve, borrowed_amount));
+        assert!(
+            le(
+                market_value_upper_bound(reserve, borrowed_amount), 
+                decimal::from(borrow_limit_usd(config(reserve)))
+            ), 
+            EBorrowLimitExceeded
+        );
+
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
@@ -564,23 +585,27 @@ module suilend::reserve {
 
         let config = reserve_config::create_reserve_config(
             // open ltv pct
-            10,
+            0,
             // close ltv pct
-            10,
+            0,
             // borrow weight bps
             10_000,
             // deposit_limit
-            100_000,
+            18_446_744_073_709_551_615,
             // borrow_limit
-            100_000,
+            18_446_744_073_709_551_615,
             // liquidation bonus pct
-            5,
+            0,
+            // deposit_limit_usd
+            18_446_744_073_709_551_615,
+            // borrow_limit_usd
+            18_446_744_073_709_551_615,
             // borrow fee bps
-            10,
+            0,
             // spread fee bps
-            2000,
+            0,
             // liquidation fee bps
-            30,
+            0,
             // utils
             {
                 let v = vector::empty();
@@ -592,7 +617,7 @@ module suilend::reserve {
             {
                 let v = vector::empty();
                 vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 3153600000);
+                vector::push_back(&mut v, 0);
                 v
             },
             test_scenario::ctx(&mut scenario)
@@ -676,7 +701,26 @@ module suilend::reserve {
             id: object::new(test_scenario::ctx(&mut scenario)),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
-            config: cell::new(example_reserve_config()),
+            config: cell::new({
+                let config = example_reserve_config();
+                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                reserve_config::set_spread_fee_bps(&mut builder, 2_000);
+                reserve_config::set_interest_rate_utils(&mut builder, {
+                    let v = vector::empty();
+                    vector::push_back(&mut v, 0);
+                    vector::push_back(&mut v, 100);
+                    v
+                });
+                reserve_config::set_interest_rate_aprs(&mut builder, {
+                    let v = vector::empty();
+                    vector::push_back(&mut v, 0);
+                    vector::push_back(&mut v, 3153600000);
+                    v
+                });
+
+                sui::test_utils::destroy(config);
+                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+            }),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -805,6 +849,45 @@ module suilend::reserve {
     }
 
     #[test]
+    #[expected_failure(abort_code = EDepositLimitExceeded)]
+    fun test_deposit_fail_usd_limit() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
+            {
+                let config = example_reserve_config();
+                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                reserve_config::set_deposit_limit(&mut builder, 18_446_744_073_709_551_615);
+                reserve_config::set_deposit_limit_usd(&mut builder, 1);
+                sui::test_utils::destroy(config);
+
+                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+            },
+            0,
+            6,
+            decimal::from(1),
+            0,
+            500_000,
+            1_000_000,
+            decimal::from(500_000),
+            decimal::from(1),
+            1,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let coins = balance::create_for_testing<TEST_USDC>(1);
+        let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, coins);
+
+        sui::test_utils::destroy(reserve);
+        sui::test_utils::destroy(ctokens);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
     fun test_redeem_happy() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
@@ -903,6 +986,12 @@ module suilend::reserve {
         assert!(balance::value(&balances.available_amount) == available_amount_old - 404, 0);
         assert!(balance::value(&balances.fees) == 4, 0);
 
+        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve);
+        assert!(balance::value(&fees) == 4, 0);
+        assert!(balance::value(&ctoken_fees) == 0, 0);
+
+        sui::test_utils::destroy(fees);
+        sui::test_utils::destroy(ctoken_fees);
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(tokens);
         sui::test_utils::destroy(ctokens);
@@ -955,6 +1044,51 @@ module suilend::reserve {
     }
 
     #[test]
+    #[expected_failure(abort_code = EBorrowLimitExceeded)]
+    fun test_borrow_fail_usd_limit() {
+        use suilend::test_usdc::{TEST_USDC};
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
+            {
+                let config = example_reserve_config();
+                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                reserve_config::set_borrow_limit_usd(&mut builder, 1);
+                sui::test_utils::destroy(config);
+
+                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+            },
+            0,
+            6,
+            decimal::from(1),
+            0,
+            0,
+            0,
+            decimal::from(0),
+            decimal::from(1),
+            1,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
+            &mut reserve, 
+            balance::create_for_testing(10_000_000)
+        );
+
+        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1_000_000 + 1);
+
+        sui::test_utils::destroy(reserve);
+        sui::test_utils::destroy(tokens);
+        sui::test_utils::destroy(ctokens);
+
+        test_scenario::end(scenario);
+    }
+
+
+    #[test]
     fun test_claim_fees() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
@@ -971,6 +1105,19 @@ module suilend::reserve {
                 reserve_config::set_borrow_limit(&mut builder, 1000 * 1_000_000);
                 reserve_config::set_borrow_fee_bps(&mut builder, 0);
                 reserve_config::set_spread_fee_bps(&mut builder, 5000);
+                reserve_config::set_interest_rate_utils(&mut builder, {
+                    let v = vector::empty();
+                    vector::push_back(&mut v, 0);
+                    vector::push_back(&mut v, 100);
+                    v
+                });
+                reserve_config::set_interest_rate_aprs(&mut builder, {
+                    let v = vector::empty();
+                    vector::push_back(&mut v, 0);
+                    vector::push_back(&mut v, 3153600000);
+                    v
+                });
+
                 sui::test_utils::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))

@@ -630,6 +630,10 @@ module suilend::obligation {
             1_000_000,
             // liquidation bonus pct
             10,
+            // deposit limit usd
+            1_000_000,
+            // borrow limit usd
+            1_000_000,
             // borrow fee bps
             0,
             // spread_fee_bps
@@ -683,6 +687,10 @@ module suilend::obligation {
             1_000_000,
             // liquidation bonus pct
             5,
+            // deposit limit usd
+            1_000_000,
+            // borrow limit usd
+            1_000_000,
             // borrow fee bps
             0,
             // spread_fee_bps
@@ -736,6 +744,10 @@ module suilend::obligation {
             1_000_000,
             // liquidation bonus pct
             5,
+            // deposit limit usd
+            1_000_000,
+            // borrow limit usd
+            1_000_000,
             // borrow fee bps
             0,
             // spread_fee_bps
@@ -789,6 +801,10 @@ module suilend::obligation {
             1_000_000,
             // liquidation bonus pct
             5,
+            // deposit limit usd
+            1_000_000,
+            // borrow limit usd
+            1_000_000,
             // borrow fee bps
             0,
             // spread_fee_bps

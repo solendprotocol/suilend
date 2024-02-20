@@ -16,10 +16,18 @@ module suilend::reserve_config {
         open_ltv_pct: u8,
         close_ltv_pct: u8,
         borrow_weight_bps: u64,
+        // deposit limit in token amounts
         deposit_limit: u64,
+        // borrow limit in token amounts
         borrow_limit: u64,
         // extra withdraw amount as bonus for liquidators
         liquidation_bonus_bps: u64,
+
+        // deposit limit in usd
+        deposit_limit_usd: u64,
+
+        // borrow limit in usd
+        borrow_limit_usd: u64,
 
         // interest params
         interest_rate_utils: vector<u8>,
@@ -46,6 +54,8 @@ module suilend::reserve_config {
         deposit_limit: u64, 
         borrow_limit: u64, 
         liquidation_bonus_bps: u64,
+        deposit_limit_usd: u64,
+        borrow_limit_usd: u64,
         borrow_fee_bps: u64, 
         spread_fee_bps: u64, 
         protocol_liquidation_fee_bps: u64, 
@@ -60,6 +70,8 @@ module suilend::reserve_config {
             deposit_limit,
             borrow_limit,
             liquidation_bonus_bps,
+            deposit_limit_usd,
+            borrow_limit_usd,
             interest_rate_utils,
             interest_rate_aprs,
             borrow_fee_bps,
@@ -133,6 +145,14 @@ module suilend::reserve_config {
         decimal::from_bps(config.liquidation_bonus_bps)
     }
 
+    public fun deposit_limit_usd(config: &ReserveConfig): u64 {
+        config.deposit_limit_usd
+    }
+
+    public fun borrow_limit_usd(config: &ReserveConfig): u64 {
+        config.borrow_limit_usd
+    }
+
     public fun borrow_fee(config: &ReserveConfig): Decimal {
         decimal::from_bps(config.borrow_fee_bps)
     }
@@ -187,6 +207,8 @@ module suilend::reserve_config {
             deposit_limit: _,
             borrow_limit: _,
             liquidation_bonus_bps: _,
+            deposit_limit_usd: _,
+            borrow_limit_usd: _,
             interest_rate_utils: _,
             interest_rate_aprs: _,
             borrow_fee_bps: _,
@@ -206,6 +228,8 @@ module suilend::reserve_config {
         set_deposit_limit(&mut builder, config.deposit_limit);
         set_borrow_limit(&mut builder, config.borrow_limit);
         set_liquidation_bonus_bps(&mut builder, config.liquidation_bonus_bps);
+        set_deposit_limit_usd(&mut builder, config.deposit_limit_usd);
+        set_borrow_limit_usd(&mut builder, config.borrow_limit_usd);
 
         set_interest_rate_utils(&mut builder, config.interest_rate_utils);
         set_interest_rate_aprs(&mut builder, config.interest_rate_aprs);
@@ -250,6 +274,14 @@ module suilend::reserve_config {
         set(builder, b"liquidation_bonus_bps", liquidation_bonus_bps);
     }
 
+    public fun set_deposit_limit_usd(builder: &mut ReserveConfigBuilder, deposit_limit_usd: u64) {
+        set(builder, b"deposit_limit_usd", deposit_limit_usd);
+    }
+
+    public fun set_borrow_limit_usd(builder: &mut ReserveConfigBuilder, borrow_limit_usd: u64) {
+        set(builder, b"borrow_limit_usd", borrow_limit_usd);
+    }
+
     public fun set_interest_rate_utils(builder: &mut ReserveConfigBuilder, interest_rate_utils: vector<u8>) {
         set(builder, b"interest_rate_utils", interest_rate_utils);
     }
@@ -278,6 +310,8 @@ module suilend::reserve_config {
             bag::remove(&mut builder.fields, b"deposit_limit"),
             bag::remove(&mut builder.fields, b"borrow_limit"),
             bag::remove(&mut builder.fields, b"liquidation_bonus_bps"),
+            bag::remove(&mut builder.fields, b"deposit_limit_usd"),
+            bag::remove(&mut builder.fields, b"borrow_limit_usd"),
             bag::remove(&mut builder.fields, b"borrow_fee_bps"),
             bag::remove(&mut builder.fields, b"spread_fee_bps"),
             bag::remove(&mut builder.fields, b"protocol_liquidation_fee_bps"),
@@ -311,6 +345,10 @@ module suilend::reserve_config {
             18_446_744_073_709_551_615u64,
             // liquidation bonus pct
             200,
+            // deposit limit in usd
+            18_446_744_073_709_551_615u64,
+            // borrow limit in usd
+            18_446_744_073_709_551_615u64,
             // borrow fee bps
             0,
             // spread fee bps
@@ -389,6 +427,8 @@ module suilend::reserve_config {
             1,
             1,
             5,
+            100000,
+            100000,
             10,
             2000,
             30,
@@ -422,6 +462,8 @@ module suilend::reserve_config {
             1,
             // liquidation bonus pct
             5,
+            10,
+            10,
             // borrow fee bps
             10,
             // spread fee bps
@@ -467,6 +509,10 @@ module suilend::reserve_config {
             1,
             // liquidation bonus bps
             300,
+            // deposit limit in usd
+            18_446_744_073_709_551_615u64,
+            // borrow limit in usd
+            18_446_744_073_709_551_615u64,
             // borrow fee bps
             10,
             // spread fee bps
