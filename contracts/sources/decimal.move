@@ -53,6 +53,14 @@ module suilend::decimal {
         }
     }
 
+    public fun saturating_sub(a: Decimal, b: Decimal): Decimal {
+        if (a.value < b.value) {
+            Decimal { value: 0 }
+        } else {
+            Decimal { value: a.value - b.value }
+        }
+    }
+
     public fun mul(a: Decimal, b: Decimal): Decimal {
         Decimal {
             value: (a.value * b.value) / WAD
@@ -127,7 +135,7 @@ module suilend::decimal {
 
 #[test_only]
 module suilend::decimal_tests {
-    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent};
+    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent, saturating_sub};
 
     #[test]
     fun test_basic() {
@@ -144,6 +152,8 @@ module suilend::decimal_tests {
         assert!(gt(b, a), 0);
         assert!(le(a, b), 0);
         assert!(ge(b, a), 0);
+        assert!(saturating_sub(a, b) == from(0), 0);
+        assert!(saturating_sub(b, a) == from(1), 0);
     }
 
     #[test]

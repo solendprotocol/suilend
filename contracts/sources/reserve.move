@@ -10,7 +10,7 @@ module suilend::reserve {
     use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
     use sui::coin::{Self, CoinMetadata};
     use sui::math::{Self};
@@ -554,7 +554,10 @@ module suilend::reserve {
         liquidity: Balance<T>
     ) {
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
-        reserve.borrowed_amount = sub(reserve.borrowed_amount, decimal::from(balance::value(&liquidity)));
+        reserve.borrowed_amount = saturating_sub(
+            reserve.borrowed_amount, 
+            decimal::from(balance::value(&liquidity))
+        );
 
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::join(&mut balances.available_amount, liquidity);

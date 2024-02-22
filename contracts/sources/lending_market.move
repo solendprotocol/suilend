@@ -431,17 +431,12 @@ module suilend::lending_market {
         reserve_array_index: u64,
         obligation_id: ID,
         clock: &Clock,
-        repay_coins: Coin<T>,
-        _ctx: &mut TxContext
+        // mut because we might not use all of it and the amount we want to use is 
+        // hard to determine beforehand
+        max_repay_coins: &mut Coin<T>,
+        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-
-        event::emit(RepayEvent {
-            lending_market: type_name::get<P>(),
-            coin_type: type_name::get<T>(),
-            liquidity_amount: coin::value(&repay_coins),
-            obligation_id,
-        });
 
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
@@ -452,13 +447,22 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
-        obligation::repay<P>(
+        let final_repay_amount = obligation::repay<P>(
             obligation, 
             reserve, 
-            decimal::from(coin::value(&repay_coins))
+            decimal::from(coin::value(max_repay_coins))
         );
 
+        let repay_coins = coin::split(max_repay_coins, final_repay_amount, ctx);
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins));
+
+        event::emit(RepayEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
+            liquidity_amount: final_repay_amount,
+            obligation_id,
+        });
+
     }
 
 
@@ -1017,15 +1021,35 @@ module suilend::lending_market {
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             obligation_id(&obligation_owner_cap),
             &clock,
-            sui,
+            &mut sui,
             test_scenario::ctx(&mut scenario)
         );
+
+        assert!(coin::value(&sui) == 0, 0);
+        test_utils::destroy(sui);
 
         let sui_reserve = reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_000), 0);
 
         let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
         assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation) == decimal::from(1_000_000), 0);
+
+        let sui = coin::mint_for_testing<TEST_SUI>(1_000_000_000, test_scenario::ctx(&mut scenario));
+        repay<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            obligation_id(&obligation_owner_cap),
+            &clock,
+            &mut sui,
+            test_scenario::ctx(&mut scenario)
+        );
+        assert!(coin::value(&sui) == 1_000_000_000 - 1_000_000, 0);
+
+        let sui_reserve = reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        assert!(reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(0), 0);
+
+        let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
+        assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation) == decimal::from(0), 0);
 
         test_scenario::next_tx(&mut scenario, owner);
 
@@ -1042,6 +1066,7 @@ module suilend::lending_market {
 
         test_utils::destroy(fees);
 
+        test_utils::destroy(sui);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
