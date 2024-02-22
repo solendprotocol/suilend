@@ -542,16 +542,6 @@ module suilend::obligation {
         i
     }
 
-    fun find_borrow_mut<P>(
-        obligation: &mut Obligation<P>,
-        reserve: &Reserve<P>,
-    ): &mut Borrow {
-        let i = find_borrow_index(obligation, reserve);
-        assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
-
-        vector::borrow_mut(&mut obligation.borrows, i)
-    }
-
     fun find_borrow<P>(
         obligation: &Obligation<P>,
         reserve: &Reserve<P>,
@@ -560,16 +550,6 @@ module suilend::obligation {
         assert!(i < vector::length(&obligation.borrows), EBorrowNotFound);
 
         vector::borrow(&obligation.borrows, i)
-    }
-
-    fun find_deposit_mut<P>(
-        obligation: &mut Obligation<P>,
-        reserve: &Reserve<P>,
-    ): &mut Deposit {
-        let i = find_deposit_index(obligation, reserve);
-        assert!(i < vector::length(&obligation.deposits), EDepositNotFound);
-
-        vector::borrow_mut(&mut obligation.deposits, i)
     }
 
     fun find_deposit<P>(
@@ -642,50 +622,29 @@ module suilend::obligation {
     struct TEST_ETH {}
 
     #[test_only]
-    use suilend::reserve_config::{Self};
+    use suilend::reserve_config::{Self, default_reserve_config};
 
     #[test_only]
     fun sui_reserve<P>(scenario: &mut Scenario): Reserve<P> {
-        let config = reserve_config::create_reserve_config(
-            // open ltv
-            20,
-            // close ltv
-            50,
-            // borrow weight bps
-            20_000,
-            // deposit limit
-            1_000_000,
-            // borrow limit
-            1_000_000,
-            // liquidation bonus pct
-            10,
-            // deposit limit usd
-            1_000_000,
-            // borrow limit usd
-            1_000_000,
-            // borrow fee bps
-            0,
-            // spread_fee_bps
-            0,
-            // liquidation_fee_bps
-            0,
-            // interest rate utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 31536000 * 4);
-                vector::push_back(&mut v, 31536000 * 8);
-                v
-            },
-            test_scenario::ctx(scenario)
-        );
+        let config = default_reserve_config();
+        let builder = reserve_config::from(&config, test_scenario::ctx(scenario));
+        reserve_config::set_open_ltv_pct(&mut builder, 20);
+        reserve_config::set_close_ltv_pct(&mut builder, 50);
+        reserve_config::set_interest_rate_utils(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 100);
+            v
+        });
+        reserve_config::set_interest_rate_aprs(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 31536000 * 4);
+            vector::push_back(&mut v, 31536000 * 8);
+            v
+        });
 
+        sui::test_utils::destroy(config);
+        let config = reserve_config::build(builder, test_scenario::ctx(scenario));
         reserve::create_for_testing<P, TEST_SUI>(
             config,
             0,
@@ -703,45 +662,26 @@ module suilend::obligation {
 
     #[test_only]
     fun usdc_reserve<P>(scenario: &mut Scenario): Reserve<P> {
-        let config = reserve_config::create_reserve_config(
-            // open ltv
-            50,
-            // close ltv
-            80,
-            // borrow weight bps
-            20_000,
-            // deposit limit
-            1_000_000,
-            // borrow limit
-            1_000_000,
-            // liquidation bonus pct
-            5,
-            // deposit limit usd
-            1_000_000,
-            // borrow limit usd
-            1_000_000,
-            // borrow fee bps
-            0,
-            // spread_fee_bps
-            0,
-            // liquidation_fee_bps
-            0,
-            // interest rate utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 3153600000);
-                vector::push_back(&mut v, 3153600000 * 2);
-                v
-            },
-            test_scenario::ctx(scenario)
-        );
+        let config = default_reserve_config();
+        let builder = reserve_config::from(&config, test_scenario::ctx(scenario));
+        reserve_config::set_open_ltv_pct(&mut builder, 50);
+        reserve_config::set_close_ltv_pct(&mut builder, 80);
+        reserve_config::set_borrow_weight_bps(&mut builder, 20_000);
+        reserve_config::set_interest_rate_utils(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 100);
+            v
+        });
+        reserve_config::set_interest_rate_aprs(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 3153600000);
+            vector::push_back(&mut v, 3153600000 * 2);
+            v
+        });
+
+        sui::test_utils::destroy(config);
+        let config = reserve_config::build(builder, test_scenario::ctx(scenario));
 
         reserve::create_for_testing<P, TEST_USDC>(
             config,
@@ -760,45 +700,27 @@ module suilend::obligation {
 
     #[test_only]
     fun usdt_reserve<P>(scenario: &mut Scenario): Reserve<P> {
-        let config = reserve_config::create_reserve_config(
-            // open ltv
-            50,
-            // close ltv
-            80,
-            // borrow weight bps
-            20_000,
-            // deposit limit
-            1_000_000,
-            // borrow limit
-            1_000_000,
-            // liquidation bonus pct
-            5,
-            // deposit limit usd
-            1_000_000,
-            // borrow limit usd
-            1_000_000,
-            // borrow fee bps
-            0,
-            // spread_fee_bps
-            0,
-            // liquidation_fee_bps
-            0,
-            // interest rate utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 3153600000);
-                vector::push_back(&mut v, 3153600000 * 2);
-                v
-            },
-            test_scenario::ctx(scenario)
-        );
+        let config = default_reserve_config();
+        let builder = reserve_config::from(&config, test_scenario::ctx(scenario));
+        reserve_config::set_open_ltv_pct(&mut builder, 50);
+        reserve_config::set_close_ltv_pct(&mut builder, 80);
+        reserve_config::set_borrow_weight_bps(&mut builder, 20_000);
+        reserve_config::set_interest_rate_utils(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 100);
+            v
+        });
+        reserve_config::set_interest_rate_aprs(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 3153600000);
+            vector::push_back(&mut v, 3153600000 * 2);
+
+            v
+        });
+
+        sui::test_utils::destroy(config);
+        let config = reserve_config::build(builder, test_scenario::ctx(scenario));
 
         reserve::create_for_testing<P, TEST_USDT>(
             config,
@@ -817,45 +739,27 @@ module suilend::obligation {
 
     #[test_only]
     fun eth_reserve<P>(scenario: &mut Scenario): Reserve<P> {
-        let config = reserve_config::create_reserve_config(
-            // open ltv
-            10,
-            // close ltv
-            20,
-            // borrow weight bps
-            30_000,
-            // deposit limit
-            1_000_000,
-            // borrow limit
-            1_000_000,
-            // liquidation bonus pct
-            5,
-            // deposit limit usd
-            1_000_000,
-            // borrow limit usd
-            1_000_000,
-            // borrow fee bps
-            0,
-            // spread_fee_bps
-            0,
-            // liquidation_fee_bps
-            0,
-            // interest rate utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 3153600000 * 10);
-                vector::push_back(&mut v, 3153600000 * 20);
-                v
-            },
-            test_scenario::ctx(scenario)
-        );
+        let config = default_reserve_config();
+        let builder = reserve_config::from(&config, test_scenario::ctx(scenario));
+        reserve_config::set_open_ltv_pct(&mut builder, 10);
+        reserve_config::set_close_ltv_pct(&mut builder, 20);
+        reserve_config::set_borrow_weight_bps(&mut builder, 30_000);
+        reserve_config::set_interest_rate_utils(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 100);
+            v
+        });
+        reserve_config::set_interest_rate_aprs(&mut builder, {
+            let v = vector::empty();
+            vector::push_back(&mut v, 3153600000 * 10);
+            vector::push_back(&mut v, 3153600000 * 20);
+
+            v
+        });
+
+        sui::test_utils::destroy(config);
+        let config = reserve_config::build(builder, test_scenario::ctx(scenario));
 
         reserve::create_for_testing<P, TEST_ETH>(
             config,
@@ -1782,7 +1686,6 @@ module suilend::obligation {
     public fun test_liquidate_full_2() {
         use sui::test_scenario::{Self};
         use sui::clock::{Self};
-        use std::debug;
         use sui::test_utils::{Self};
 
         let owner = @0x26;
