@@ -917,7 +917,7 @@ module suilend::lending_market {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::mock_pyth::{Self};
-        use suilend::reserve_config::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
 
         use std::type_name::{Self};
 
@@ -929,7 +929,15 @@ module suilend::lending_market {
                 &mut bag, 
                 type_name::get<TEST_USDC>(), 
                 ReserveArgs {
-                    config: reserve_config::default_reserve_config(),
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
                     initial_deposit: 100 * 1_000_000
                 }
             );
@@ -1082,7 +1090,7 @@ module suilend::lending_market {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::mock_pyth::{Self};
-        use suilend::reserve_config::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
 
         use std::type_name::{Self};
 
@@ -1094,7 +1102,15 @@ module suilend::lending_market {
                 &mut bag, 
                 type_name::get<TEST_USDC>(), 
                 ReserveArgs {
-                    config: reserve_config::default_reserve_config(),
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
                     initial_deposit: 100 * 1_000_000
                 }
             );
@@ -1197,7 +1213,7 @@ module suilend::lending_market {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::mock_pyth::{Self};
-        use suilend::reserve_config::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
         use suilend::decimal::{sub};
 
         use std::type_name::{Self};
@@ -1210,7 +1226,15 @@ module suilend::lending_market {
                 &mut bag, 
                 type_name::get<TEST_USDC>(), 
                 ReserveArgs {
-                    config: reserve_config::default_reserve_config(),
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
                     initial_deposit: 100 * 1_000_000
                 }
             );

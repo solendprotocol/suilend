@@ -582,55 +582,6 @@ module suilend::reserve {
 
     // === Test Functions ===
     #[test_only]
-    fun example_reserve_config(): ReserveConfig {
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let config = reserve_config::create_reserve_config(
-            // open ltv pct
-            0,
-            // close ltv pct
-            0,
-            // borrow weight bps
-            10_000,
-            // deposit_limit
-            18_446_744_073_709_551_615,
-            // borrow_limit
-            18_446_744_073_709_551_615,
-            // liquidation bonus pct
-            0,
-            // deposit_limit_usd
-            18_446_744_073_709_551_615,
-            // borrow_limit_usd
-            18_446_744_073_709_551_615,
-            // borrow fee bps
-            0,
-            // spread fee bps
-            0,
-            // liquidation fee bps
-            0,
-            // utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 0);
-                v
-            },
-            test_scenario::ctx(&mut scenario)
-        );
-
-        test_scenario::end(scenario);
-        config
-    }
-
-    #[test_only]
     public fun update_price_for_testing<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
@@ -660,6 +611,8 @@ module suilend::reserve {
     #[test]
     fun test_accessors() {
         use suilend::test_usdc::{TEST_USDC};
+        use suilend::reserve_config::{default_reserve_config};
+
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
@@ -667,7 +620,7 @@ module suilend::reserve {
             id: object::new(test_scenario::ctx(&mut scenario)),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
-            config: cell::new(example_reserve_config()),
+            config: cell::new(default_reserve_config()),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -696,6 +649,7 @@ module suilend::reserve {
     fun test_compound_interest() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
@@ -705,7 +659,7 @@ module suilend::reserve {
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new({
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_spread_fee_bps(&mut builder, 2_000);
                 reserve_config::set_interest_rate_utils(&mut builder, {
@@ -771,13 +725,14 @@ module suilend::reserve {
     fun test_deposit_happy() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            example_reserve_config(),
+            default_reserve_config(),
             0,
             6,
             decimal::from(1),
@@ -818,13 +773,14 @@ module suilend::reserve {
     fun test_deposit_fail() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_deposit_limit(&mut builder, 1000);
                 sui::test_utils::destroy(config);
@@ -856,13 +812,14 @@ module suilend::reserve {
     fun test_deposit_fail_usd_limit() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_deposit_limit(&mut builder, 18_446_744_073_709_551_615);
                 reserve_config::set_deposit_limit_usd(&mut builder, 1);
@@ -894,12 +851,13 @@ module suilend::reserve {
     fun test_redeem_happy() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            example_reserve_config(),
+            default_reserve_config(),
             0,
             6,
             decimal::from(1),
@@ -941,13 +899,14 @@ module suilend::reserve {
     fun test_borrow_happy() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_fee_bps(&mut builder, 100);
                 sui::test_utils::destroy(config);
@@ -1007,13 +966,14 @@ module suilend::reserve {
     fun test_borrow_fail() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_limit(&mut builder, 0);
                 sui::test_utils::destroy(config);
@@ -1051,13 +1011,14 @@ module suilend::reserve {
     fun test_borrow_fail_usd_limit() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_limit_usd(&mut builder, 1);
                 sui::test_utils::destroy(config);
@@ -1095,6 +1056,7 @@ module suilend::reserve {
     fun test_claim_fees() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
@@ -1102,7 +1064,7 @@ module suilend::reserve {
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_deposit_limit(&mut builder, 1000 * 1_000_000);
                 reserve_config::set_borrow_limit(&mut builder, 1000 * 1_000_000);
@@ -1179,13 +1141,14 @@ module suilend::reserve {
     fun test_repay_happy() {
         use suilend::test_usdc::{TEST_USDC};
         use sui::test_scenario::{Self};
+        use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let reserve = create_for_testing<TEST_LM, TEST_USDC>(
             {
-                let config = example_reserve_config();
+                let config = default_reserve_config();
                 let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_fee_bps(&mut builder, 100);
                 sui::test_utils::destroy(config);

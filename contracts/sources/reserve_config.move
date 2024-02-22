@@ -327,61 +327,9 @@ module suilend::reserve_config {
 
 
     // === Tests ==
-    #[test_only]
-    public fun default_reserve_config(): ReserveConfig {
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-        
-        let config = create_reserve_config(
-            // open ltv pct
-            50,
-            // close ltv pct
-            80,
-            // borrow weight bps
-            10_000,
-            // deposit_limit
-            18_446_744_073_709_551_615u64,
-            // borrow_limit
-            18_446_744_073_709_551_615u64,
-            // liquidation bonus pct
-            200,
-            // deposit limit in usd
-            18_446_744_073_709_551_615u64,
-            // borrow limit in usd
-            18_446_744_073_709_551_615u64,
-            // borrow fee bps
-            0,
-            // spread fee bps
-            0,
-            // liquidation fee bps
-            300,
-            // utils
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 100);
-                v
-            },
-            // aprs
-            {
-                let v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 1);
-                v
-            },
-            test_scenario::ctx(&mut scenario)
-        );
-
-        test_scenario::end(scenario);
-
-        config
-    }
-
-    // TODO tests for validate_utils_and_aprs
-
     #[test]
     fun test_calculate_apr() {
-        let config = example_reserve_config();
+        let config = default_reserve_config();
         config.interest_rate_utils = {
             let v = vector::empty();
             vector::push_back(&mut v, 0);
@@ -492,33 +440,33 @@ module suilend::reserve_config {
     }
 
     #[test_only]
-    fun example_reserve_config(): ReserveConfig {
+    public fun default_reserve_config(): ReserveConfig {
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
         let config = create_reserve_config(
             // open ltv pct
-            10,
+            0,
             // close ltv pct
-            10,
+            0,
             // borrow weight bps
             10_000,
             // deposit_limit
-            1,
+            18_446_744_073_709_551_615,
             // borrow_limit
-            1,
-            // liquidation bonus bps
-            300,
-            // deposit limit in usd
-            18_446_744_073_709_551_615u64,
-            // borrow limit in usd
-            18_446_744_073_709_551_615u64,
+            18_446_744_073_709_551_615,
+            // liquidation bonus pct
+            0,
+            // deposit_limit_usd
+            18_446_744_073_709_551_615,
+            // borrow_limit_usd
+            18_446_744_073_709_551_615,
             // borrow fee bps
-            10,
+            0,
             // spread fee bps
-            2000,
+            0,
             // liquidation fee bps
-            200,
+            0,
             // utils
             {
                 let v = vector::empty();
