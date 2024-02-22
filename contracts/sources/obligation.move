@@ -8,7 +8,7 @@ module suilend::obligation {
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus, protocol_liquidation_fee};
     use sui::clock::{Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le, eq};
 
     #[test_only]
     use sui::test_scenario::{Self, Scenario};
@@ -33,8 +33,10 @@ module suilend::obligation {
         id: UID,
 
         /// all deposits in the obligation. there is at most one deposit per coin type
+        /// There should never be a deposit object with a zeroed amount
         deposits: vector<Deposit>,
         /// all borrows in the obligation. there is at most one deposit per coin type
+        /// There should never be a borrow object with a zeroed amount
         borrows: vector<Borrow>,
 
         /// value of all deposits in USD
@@ -255,7 +257,10 @@ module suilend::obligation {
         reserve: &Reserve<P>,
         max_repay_amount: Decimal,
     ): u64 {
-        let borrow = find_borrow_mut(obligation, reserve);
+        let borrow_index = find_borrow_index(obligation, reserve);
+        assert!(borrow_index < vector::length(&obligation.borrows), EBorrowNotFound);
+        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
+
         let old_borrow_amount = borrow.borrowed_amount;
         compound_debt(borrow, reserve);
 
@@ -307,6 +312,15 @@ module suilend::obligation {
             );
         };
 
+        if (eq(borrow.borrowed_amount, decimal::from(0))) {
+            let Borrow { 
+                coin_type: _, 
+                reserve_array_index: _,
+                borrowed_amount: _,
+                cumulative_borrow_rate: _,
+                market_value: _
+            }  = vector::remove(&mut obligation.borrows, borrow_index);
+        };
 
         ceil(repay_amount)
     }
@@ -440,7 +454,9 @@ module suilend::obligation {
         reserve: &Reserve<P>,
         ctoken_amount: u64,
     ) {
-        let deposit = find_deposit_mut(obligation, reserve);
+        let deposit_index = find_deposit_index(obligation, reserve);
+        assert!(deposit_index < vector::length(&obligation.deposits), EDepositNotFound);
+        let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
 
         let withdraw_market_value = reserve::ctoken_market_value(reserve, ctoken_amount);
 
@@ -464,6 +480,15 @@ module suilend::obligation {
                 close_ltv(config(reserve))
             )
         );
+
+        if (deposit.deposited_ctoken_amount == 0) {
+            let Deposit { 
+                coin_type: _,
+                reserve_array_index: _,
+                deposited_ctoken_amount: _,
+                market_value: _
+            } = vector::remove(&mut obligation.deposits, deposit_index);
+        };
     }
 
     /// Compound the debt on a borrow object
@@ -1273,13 +1298,7 @@ module suilend::obligation {
         assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
-        assert!(vector::length(&obligation.borrows) == 1, 0);
-
-        // borrow was compounded by 1% so there should be borrows outstanding
-        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
-        assert!(usdc_borrow.borrowed_amount == decimal::from(0), 1);
-        assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(200), 2);
-        assert!(usdc_borrow.market_value == decimal::from_percent_u64(0), 3);
+        assert!(vector::length(&obligation.borrows) == 0, 0);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
@@ -1662,14 +1681,9 @@ module suilend::obligation {
 
         debug::print(&obligation);
 
-        assert!(vector::length(&obligation.deposits) == 2, 0);
+        assert!(vector::length(&obligation.deposits) == 1, 0);
 
-        // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
-        let sui_deposit = vector::borrow(&obligation.deposits, 0);
-        assert!(sui_deposit.deposited_ctoken_amount == 0, 3);
-        assert!(sui_deposit.market_value == decimal::from(0), 4);
-
-        let eth_deposit = vector::borrow(&obligation.deposits, 1);
+        let eth_deposit = vector::borrow(&obligation.deposits, 0);
         assert!(eth_deposit.deposited_ctoken_amount == 2 * 100_000_000, 3);
         assert!(eth_deposit.market_value == decimal::from(4000), 4);
 
@@ -1750,11 +1764,7 @@ module suilend::obligation {
         assert!(sui_deposit.deposited_ctoken_amount == 99 * 1_000_000_000 + 890_000_000, 3);
         assert!(sui_deposit.market_value == add(decimal::from(998), decimal::from_percent(90)), 4);
 
-        assert!(vector::length(&obligation.borrows) == 1, 0);
-
-        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
-        assert!(usdc_borrow.borrowed_amount == decimal::from(0), 1);
-        assert!(usdc_borrow.market_value == decimal::from(0), 3);
+        assert!(vector::length(&obligation.borrows) == 0, 0);
 
         assert!(obligation.deposited_value_usd == add(decimal::from(998), decimal::from_percent(90)), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(0), 1);
@@ -1842,16 +1852,12 @@ module suilend::obligation {
             100 * 1_000_000_000
         );
 
-        assert!(vector::length(&obligation.deposits) == 2, 0);
+        assert!(vector::length(&obligation.deposits) == 1, 0);
 
         // unchanged
         let sui_deposit = vector::borrow(&obligation.deposits, 0);
         assert!(sui_deposit.deposited_ctoken_amount == 10_000_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(100), 4);
-
-        let usdc_deposit = vector::borrow(&obligation.deposits, 1);
-        assert!(usdc_deposit.deposited_ctoken_amount == 0, 3);
-        assert!(usdc_deposit.market_value == decimal::from(0), 4);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
