@@ -15,6 +15,7 @@ module suilend::reserve_config {
         // risk params
         open_ltv_pct: u8,
         close_ltv_pct: u8,
+        max_close_ltv_pct: u8, // unused
         borrow_weight_bps: u64,
         // deposit limit in token amounts
         deposit_limit: u64,
@@ -22,6 +23,7 @@ module suilend::reserve_config {
         borrow_limit: u64,
         // extra withdraw amount as bonus for liquidators
         liquidation_bonus_bps: u64,
+        max_liquidation_bonus_bps: u64, // unused
 
         // deposit limit in usd
         deposit_limit_usd: u64,
@@ -58,10 +60,12 @@ module suilend::reserve_config {
     public fun create_reserve_config(
         open_ltv_pct: u8, 
         close_ltv_pct: u8, 
+        max_close_ltv_pct: u8,
         borrow_weight_bps: u64, 
         deposit_limit: u64, 
         borrow_limit: u64, 
         liquidation_bonus_bps: u64,
+        max_liquidation_bonus_bps: u64,
         deposit_limit_usd: u64,
         borrow_limit_usd: u64,
         borrow_fee_bps: u64, 
@@ -77,10 +81,12 @@ module suilend::reserve_config {
         let config = ReserveConfig {
             open_ltv_pct,
             close_ltv_pct,
+            max_close_ltv_pct,
             borrow_weight_bps,
             deposit_limit,
             borrow_limit,
             liquidation_bonus_bps,
+            max_liquidation_bonus_bps,
             deposit_limit_usd,
             borrow_limit_usd,
             interest_rate_utils,
@@ -225,10 +231,12 @@ module suilend::reserve_config {
         let ReserveConfig { 
             open_ltv_pct: _,
             close_ltv_pct: _,
+            max_close_ltv_pct: _,
             borrow_weight_bps: _,
             deposit_limit: _,
             borrow_limit: _,
             liquidation_bonus_bps: _,
+            max_liquidation_bonus_bps: _,
             deposit_limit_usd: _,
             borrow_limit_usd: _,
             interest_rate_utils: _,
@@ -249,10 +257,12 @@ module suilend::reserve_config {
         let builder = ReserveConfigBuilder { fields: bag::new(ctx) };
         set_open_ltv_pct(&mut builder, config.open_ltv_pct);
         set_close_ltv_pct(&mut builder, config.close_ltv_pct);
+        set_max_close_ltv_pct(&mut builder, config.max_close_ltv_pct);
         set_borrow_weight_bps(&mut builder, config.borrow_weight_bps);
         set_deposit_limit(&mut builder, config.deposit_limit);
         set_borrow_limit(&mut builder, config.borrow_limit);
         set_liquidation_bonus_bps(&mut builder, config.liquidation_bonus_bps);
+        set_max_liquidation_bonus_bps(&mut builder, config.max_liquidation_bonus_bps);
         set_deposit_limit_usd(&mut builder, config.deposit_limit_usd);
         set_borrow_limit_usd(&mut builder, config.borrow_limit_usd);
 
@@ -286,6 +296,10 @@ module suilend::reserve_config {
         set(builder, b"close_ltv_pct", close_ltv_pct);
     }
 
+    public fun set_max_close_ltv_pct(builder: &mut ReserveConfigBuilder, max_close_ltv_pct: u8) {
+        set(builder, b"max_close_ltv_pct", max_close_ltv_pct);
+    }
+
     public fun set_borrow_weight_bps(builder: &mut ReserveConfigBuilder, borrow_weight_bps: u64) {
         set(builder, b"borrow_weight_bps", borrow_weight_bps);
     }
@@ -300,6 +314,10 @@ module suilend::reserve_config {
 
     public fun set_liquidation_bonus_bps(builder: &mut ReserveConfigBuilder, liquidation_bonus_bps: u64) {
         set(builder, b"liquidation_bonus_bps", liquidation_bonus_bps);
+    }
+
+    public fun set_max_liquidation_bonus_bps(builder: &mut ReserveConfigBuilder, max_liquidation_bonus_bps: u64) {
+        set(builder, b"max_liquidation_bonus_bps", max_liquidation_bonus_bps);
     }
 
     public fun set_deposit_limit_usd(builder: &mut ReserveConfigBuilder, deposit_limit_usd: u64) {
@@ -346,10 +364,12 @@ module suilend::reserve_config {
         let config = create_reserve_config(
             bag::remove(&mut builder.fields, b"open_ltv_pct"),
             bag::remove(&mut builder.fields, b"close_ltv_pct"),
+            bag::remove(&mut builder.fields, b"max_close_ltv_pct"),
             bag::remove(&mut builder.fields, b"borrow_weight_bps"),
             bag::remove(&mut builder.fields, b"deposit_limit"),
             bag::remove(&mut builder.fields, b"borrow_limit"),
             bag::remove(&mut builder.fields, b"liquidation_bonus_bps"),
+            bag::remove(&mut builder.fields, b"max_liquidation_bonus_bps"),
             bag::remove(&mut builder.fields, b"deposit_limit_usd"),
             bag::remove(&mut builder.fields, b"borrow_limit_usd"),
             bag::remove(&mut builder.fields, b"borrow_fee_bps"),
@@ -414,9 +434,11 @@ module suilend::reserve_config {
         let config = create_reserve_config(
             10,
             10,
+            10,
             10_000,
             1,
             1,
+            5,
             5,
             100000,
             100000,
@@ -448,6 +470,8 @@ module suilend::reserve_config {
             10,
             // close ltv pct
             9,
+            // max close ltv pct
+            10,
             // borrow weight bps
             10_000,
             // deposit_limit
@@ -455,6 +479,8 @@ module suilend::reserve_config {
             // borrow_limit
             1,
             // liquidation bonus pct
+            5,
+            // max liquidation bonus pct
             5,
             10,
             10,
@@ -498,6 +524,8 @@ module suilend::reserve_config {
             0,
             // close ltv pct
             0,
+            // max close ltv pct
+            0,
             // borrow weight bps
             10_000,
             // deposit_limit
@@ -505,6 +533,8 @@ module suilend::reserve_config {
             // borrow_limit
             18_446_744_073_709_551_615,
             // liquidation bonus pct
+            0,
+            // max liquidation bonus pct
             0,
             // deposit_limit_usd
             18_446_744_073_709_551_615,

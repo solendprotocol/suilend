@@ -57,6 +57,7 @@ module suilend::obligation {
         /// if weighted_borrowed_value_usd > unhealthy_borrow_value_usd, 
         /// the obligation is unhealthy and can be liquidated
         unhealthy_borrow_value_usd: Decimal,
+        super_unhealthy_borrow_value_usd: Decimal, // unused
 
         /// value of all borrows in USD
         unweighted_borrowed_value_usd: Decimal,
@@ -103,6 +104,7 @@ module suilend::obligation {
             weighted_borrowed_value_upper_bound_usd: decimal::from(0),
             allowed_borrow_value_usd: decimal::from(0),
             unhealthy_borrow_value_usd: decimal::from(0),
+            super_unhealthy_borrow_value_usd: decimal::from(0),
             borrowing_isolated_asset: false,
             bad_debt_usd: decimal::from(0),
             closable: false
