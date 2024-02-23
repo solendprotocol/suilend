@@ -3,7 +3,7 @@ module suilend::lending_market {
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use sui::event::{Self};
-    use suilend::decimal::{Self};
+    use suilend::decimal::{Self, Decimal};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
@@ -49,7 +49,12 @@ module suilend::lending_market {
 
         // window duration is in seconds
         rate_limiter: RateLimiter,
-        fee_receiver: address
+        fee_receiver: address,
+
+        /// unused
+        bad_debt_usd: Decimal,
+        /// unused
+        bad_debt_limit_usd: Decimal,
     }
 
     struct LendingMarketOwnerCap<phantom P> has key, store {
@@ -134,7 +139,9 @@ module suilend::lending_market {
             reserves: vector::empty(),
             obligations: object_table::new(ctx),
             rate_limiter: rate_limiter::new(rate_limiter::new_config(1, 18_446_744_073_709_551_615), 0),
-            fee_receiver: tx_context::sender(ctx)
+            fee_receiver: tx_context::sender(ctx),
+            bad_debt_usd: decimal::from(0),
+            bad_debt_limit_usd: decimal::from(0),
         };
         
         let owner_cap = LendingMarketOwnerCap<P> { 

@@ -66,7 +66,10 @@ module suilend::obligation {
         /// used to limit borrows and withdraws
         weighted_borrowed_value_upper_bound_usd: Decimal,
 
-        borrowing_isolated_asset: bool
+        borrowing_isolated_asset: bool,
+
+        /// unused
+        bad_debt_usd: Decimal
     }
 
     struct Deposit has store {
@@ -96,7 +99,8 @@ module suilend::obligation {
             weighted_borrowed_value_upper_bound_usd: decimal::from(0),
             allowed_borrow_value_usd: decimal::from(0),
             unhealthy_borrow_value_usd: decimal::from(0),
-            borrowing_isolated_asset: false
+            borrowing_isolated_asset: false,
+            bad_debt_usd: decimal::from(0)
         }
     }
 
