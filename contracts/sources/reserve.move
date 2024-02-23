@@ -457,9 +457,9 @@ module suilend::reserve {
             borrow_interest_paid: net_new_debt,
             spread_fee: spread_fee,
             supply_interest_earned: sub(net_new_debt, spread_fee),
-            borrow_interest_paid_usd_estimate: mul(net_new_debt, reserve.price),
-            protocol_fee_usd_estimate: mul(spread_fee, reserve.price),
-            supply_interest_earned_usd_estimate: mul(sub(net_new_debt, spread_fee), reserve.price),
+            borrow_interest_paid_usd_estimate: market_value(reserve, net_new_debt),
+            protocol_fee_usd_estimate: market_value(reserve, spread_fee),
+            supply_interest_earned_usd_estimate: market_value(reserve, sub(net_new_debt, spread_fee)),
         });
     }
 
@@ -638,9 +638,9 @@ module suilend::reserve {
             available_amount: available_amount_decimal,
             supply_amount: supply_amount,
             borrowed_amount: reserve.borrowed_amount,
-            available_amount_usd_estimate: mul(available_amount_decimal, reserve.price),
-            supply_amount_usd_estimate: mul(supply_amount, reserve.price),
-            borrowed_amount_usd_estimate: mul(reserve.borrowed_amount, reserve.price),
+            available_amount_usd_estimate: market_value(reserve, available_amount_decimal),
+            supply_amount_usd_estimate: market_value(reserve, supply_amount),
+            borrowed_amount_usd_estimate: market_value(reserve, reserve.borrowed_amount),
             borrow_apr: borrow_apr,
             supply_apr: supply_apr,
 
