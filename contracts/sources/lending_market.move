@@ -941,6 +941,7 @@ module suilend::lending_market {
                         let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                         reserve_config::set_open_ltv_pct(&mut builder, 50);
                         reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
                         sui::test_utils::destroy(config);
 
                         reserve_config::build(builder, test_scenario::ctx(&mut scenario))
@@ -1114,6 +1115,7 @@ module suilend::lending_market {
                         let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                         reserve_config::set_open_ltv_pct(&mut builder, 50);
                         reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
                         sui::test_utils::destroy(config);
 
                         reserve_config::build(builder, test_scenario::ctx(&mut scenario))
@@ -1238,6 +1240,7 @@ module suilend::lending_market {
                         let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                         reserve_config::set_open_ltv_pct(&mut builder, 50);
                         reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
                         sui::test_utils::destroy(config);
 
                         reserve_config::build(builder, test_scenario::ctx(&mut scenario))
@@ -1321,7 +1324,9 @@ module suilend::lending_market {
                 );
                 reserve_config::set_open_ltv_pct(&mut builder, 0);
                 reserve_config::set_close_ltv_pct(&mut builder, 0);
+                reserve_config::set_max_close_ltv_pct(&mut builder, 0);
                 reserve_config::set_liquidation_bonus_bps(&mut builder, 400);
+                reserve_config::set_max_liquidation_bonus_bps(&mut builder, 400);
                 reserve_config::set_protocol_liquidation_fee_bps(&mut builder, 600);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))

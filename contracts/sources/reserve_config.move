@@ -107,10 +107,17 @@ module suilend::reserve_config {
     fun validate_reserve_config(config: &ReserveConfig) {
         assert!(config.open_ltv_pct <= 100, EInvalidReserveConfig);
         assert!(config.close_ltv_pct <= 100, EInvalidReserveConfig);
+        assert!(config.max_close_ltv_pct <= 100, EInvalidReserveConfig);
+
         assert!(config.open_ltv_pct <= config.close_ltv_pct, EInvalidReserveConfig);
+        assert!(config.close_ltv_pct <= config.max_close_ltv_pct, EInvalidReserveConfig);
 
         assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
-        assert!(config.liquidation_bonus_bps + config.protocol_liquidation_fee_bps <= 2_000, EInvalidReserveConfig);
+        assert!(config.liquidation_bonus_bps <= config.max_liquidation_bonus_bps, EInvalidReserveConfig);
+        assert!(
+            config.max_liquidation_bonus_bps + config.protocol_liquidation_fee_bps <= 2_000, 
+            EInvalidReserveConfig
+        );
 
         if (config.isolated) {
             assert!(config.open_ltv_pct == 0 && config.close_ltv_pct == 0, EInvalidReserveConfig);
@@ -118,6 +125,11 @@ module suilend::reserve_config {
 
         assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
         assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
+
+        assert!(
+            config.open_attributed_borrow_limit_usd <= config.close_attributed_borrow_limit_usd, 
+            EInvalidReserveConfig
+        );
 
         validate_utils_and_aprs(&config.interest_rate_utils, &config.interest_rate_aprs);
     }
