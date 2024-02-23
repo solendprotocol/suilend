@@ -6,7 +6,14 @@ module suilend::obligation {
     use std::vector::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
-    use suilend::reserve_config::{open_ltv, close_ltv, borrow_weight, liquidation_bonus, protocol_liquidation_fee};
+    use suilend::reserve_config::{
+        open_ltv, 
+        close_ltv, 
+        borrow_weight, 
+        liquidation_bonus, 
+        protocol_liquidation_fee,
+        isolated
+    };
     use sui::clock::{Clock};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le, eq};
 
@@ -24,6 +31,7 @@ module suilend::obligation {
     const EObligationIsNotHealthy: u64 = 1;
     const EBorrowNotFound: u64 = 2;
     const EDepositNotFound: u64 = 3;
+    const EIsolatedAssetViolation: u64 = 4;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -57,6 +65,8 @@ module suilend::obligation {
         /// weighted value of all borrows in USD, but using the upper bound of the market value
         /// used to limit borrows and withdraws
         weighted_borrowed_value_upper_bound_usd: Decimal,
+
+        borrowing_isolated_asset: bool
     }
 
     struct Deposit has store {
@@ -85,7 +95,8 @@ module suilend::obligation {
             weighted_borrowed_value_usd: decimal::from(0),
             weighted_borrowed_value_upper_bound_usd: decimal::from(0),
             allowed_borrow_value_usd: decimal::from(0),
-            unhealthy_borrow_value_usd: decimal::from(0)
+            unhealthy_borrow_value_usd: decimal::from(0),
+            borrowing_isolated_asset: false
         }
     }
 
@@ -147,6 +158,7 @@ module suilend::obligation {
         let unweighted_borrowed_value_usd = decimal::from(0);
         let weighted_borrowed_value_usd = decimal::from(0);
         let weighted_borrowed_value_upper_bound_usd = decimal::from(0);
+        let borrowing_isolated_asset = false;
 
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow_mut(&mut obligation.borrows, i);
@@ -180,12 +192,18 @@ module suilend::obligation {
                 )
             );
 
+            if (isolated(config(borrow_reserve))) {
+                borrowing_isolated_asset = true;
+            };
+
             i = i + 1;
         };
 
         obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
         obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
         obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
+
+        obligation.borrowing_isolated_asset = borrowing_isolated_asset;
     }
 
     /// Process a deposit action
@@ -249,6 +267,10 @@ module suilend::obligation {
         );
 
         assert!(is_healthy(obligation), EObligationIsNotHealthy);
+
+        if (isolated(config(reserve)) || obligation.borrowing_isolated_asset) {
+            assert!(vector::length(&obligation.borrows) == 1, EIsolatedAssetViolation);
+        };
     }
 
     /// Process a repay action. The reserve's interest must have been refreshed before calling this.
@@ -889,6 +911,146 @@ module suilend::obligation {
 
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_borrow_isolated_happy() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
+            100 * 1_000_000_000
+        );
+
+        let config = {
+            let builder = reserve_config::from(
+                config(get_reserve<TEST_MARKET, TEST_USDC>(&reserves)),
+                test_scenario::ctx(&mut scenario)
+            );
+            reserve_config::set_open_ltv_pct(&mut builder, 0);
+            reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_isolated(&mut builder, true);
+            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+        };
+
+        reserve::update_reserve_config(
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            config
+        );
+
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_USDC>(&reserves), 1);
+
+        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+
+        // this fails
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_USDC>(&reserves), 1);
+
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(reserves);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EIsolatedAssetViolation)]
+    public fun test_borrow_isolated_fail() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
+            100 * 1_000_000_000
+        );
+
+        let config = {
+            let builder = reserve_config::from(
+                config(get_reserve<TEST_MARKET, TEST_USDC>(&reserves)),
+                test_scenario::ctx(&mut scenario)
+            );
+            reserve_config::set_open_ltv_pct(&mut builder, 0);
+            reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_isolated(&mut builder, true);
+            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+        };
+
+        reserve::update_reserve_config(
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            config
+        );
+
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_USDC>(&reserves), 1);
+
+        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+
+        // this fails
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_SUI>(&reserves), 1);
+
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(reserves);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EIsolatedAssetViolation)]
+    public fun test_borrow_isolated_fail_2() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve<TEST_MARKET, TEST_SUI>(&reserves),
+            100 * 1_000_000_000
+        );
+
+        let config = {
+            let builder = reserve_config::from(
+                config(get_reserve<TEST_MARKET, TEST_USDC>(&reserves)),
+                test_scenario::ctx(&mut scenario)
+            );
+            reserve_config::set_open_ltv_pct(&mut builder, 0);
+            reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_isolated(&mut builder, true);
+            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+        };
+
+        reserve::update_reserve_config(
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            config
+        );
+
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_SUI>(&reserves), 1);
+
+        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+
+        // this fails
+        borrow<TEST_MARKET>(&mut obligation, get_reserve<TEST_MARKET, TEST_USDC>(&reserves), 1);
+
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(reserves);
         sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }

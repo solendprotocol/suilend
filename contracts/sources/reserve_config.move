@@ -40,6 +40,10 @@ module suilend::reserve_config {
         // extra withdraw amount as fee for protocol on liquidations
         protocol_liquidation_fee_bps: u64,
 
+        // if true, the asset cannot be used as collateral 
+        // and can only be borrowed in isolation
+        isolated: bool,
+
         additional_fields: Bag
     }
 
@@ -61,6 +65,7 @@ module suilend::reserve_config {
         protocol_liquidation_fee_bps: u64, 
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
+        isolated: bool,
         ctx: &mut TxContext
     ): ReserveConfig {
         let config = ReserveConfig {
@@ -77,6 +82,7 @@ module suilend::reserve_config {
             borrow_fee_bps,
             spread_fee_bps,
             protocol_liquidation_fee_bps,
+            isolated,
             additional_fields: bag::new(ctx)
         };
 
@@ -91,6 +97,10 @@ module suilend::reserve_config {
 
         assert!(config.borrow_weight_bps >= 10_000, EInvalidReserveConfig);
         assert!(config.liquidation_bonus_bps + config.protocol_liquidation_fee_bps <= 2_000, EInvalidReserveConfig);
+
+        if (config.isolated) {
+            assert!(config.open_ltv_pct == 0 && config.close_ltv_pct == 0, EInvalidReserveConfig);
+        };
 
         assert!(config.borrow_fee_bps <= 10_000, EInvalidReserveConfig);
         assert!(config.spread_fee_bps <= 10_000, EInvalidReserveConfig);
@@ -161,6 +171,10 @@ module suilend::reserve_config {
         decimal::from_bps(config.protocol_liquidation_fee_bps)
     }
 
+    public fun isolated(config: &ReserveConfig): bool {
+        config.isolated
+    }
+
     public fun spread_fee(config: &ReserveConfig): Decimal {
         decimal::from_bps(config.spread_fee_bps)
     }
@@ -214,6 +228,7 @@ module suilend::reserve_config {
             borrow_fee_bps: _,
             spread_fee_bps: _,
             protocol_liquidation_fee_bps: _,
+            isolated: _,
             additional_fields
         } = config;
 
@@ -237,6 +252,7 @@ module suilend::reserve_config {
         set_borrow_fee_bps(&mut builder, config.borrow_fee_bps);
         set_spread_fee_bps(&mut builder, config.spread_fee_bps);
         set_protocol_liquidation_fee_bps(&mut builder, config.protocol_liquidation_fee_bps);
+        set_isolated(&mut builder, config.isolated);
 
         builder
     }
@@ -302,6 +318,10 @@ module suilend::reserve_config {
         set(builder, b"protocol_liquidation_fee_bps", protocol_liquidation_fee_bps);
     }
 
+    public fun set_isolated(builder: &mut ReserveConfigBuilder, isolated: bool) {
+        set(builder, b"isolated", isolated);
+    }
+
     public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
         let config = create_reserve_config(
             bag::remove(&mut builder.fields, b"open_ltv_pct"),
@@ -317,6 +337,7 @@ module suilend::reserve_config {
             bag::remove(&mut builder.fields, b"protocol_liquidation_fee_bps"),
             bag::remove(&mut builder.fields, b"interest_rate_utils"),
             bag::remove(&mut builder.fields, b"interest_rate_aprs"),
+            bag::remove(&mut builder.fields, b"isolated"),
             tx_context
         );
 
@@ -382,6 +403,7 @@ module suilend::reserve_config {
             30,
             utils,
             aprs,
+            false,
             test_scenario::ctx(&mut scenario)
         );
 
@@ -432,6 +454,7 @@ module suilend::reserve_config {
                 vector::push_back(&mut v, 100);
                 v
             },
+            false,
             test_scenario::ctx(&mut scenario)
         );
 
@@ -481,6 +504,7 @@ module suilend::reserve_config {
                 vector::push_back(&mut v, 0);
                 v
             },
+            false,
             test_scenario::ctx(&mut scenario)
         );
 
