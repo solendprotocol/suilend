@@ -78,7 +78,10 @@ module suilend::reserve {
         cumulative_borrow_rate: Decimal,
         interest_last_update_timestamp_s: u64,
 
-        unclaimed_spread_fees: Decimal
+        unclaimed_spread_fees: Decimal,
+
+        /// unused
+        attributed_borrow_value: Decimal
     }
 
     /// Interest bearing token on the underlying Coin<T>. The ctoken can be redeemed for 
@@ -136,7 +139,8 @@ module suilend::reserve {
             borrowed_amount: decimal::from(0),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
-            unclaimed_spread_fees: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0)
         };
 
         dynamic_field::add(
@@ -631,7 +635,8 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
-            unclaimed_spread_fees: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0)
         };
 
         assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
@@ -688,7 +693,8 @@ module suilend::reserve {
             borrowed_amount: decimal::from(500),
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
-            unclaimed_spread_fees: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0)
         };
 
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
@@ -1232,7 +1238,8 @@ module suilend::reserve {
             borrowed_amount,
             cumulative_borrow_rate,
             interest_last_update_timestamp_s,
-            unclaimed_spread_fees: decimal::from(0)
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0)
         };
 
         dynamic_field::add(

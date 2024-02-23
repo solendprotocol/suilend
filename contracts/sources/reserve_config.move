@@ -44,6 +44,10 @@ module suilend::reserve_config {
         // and can only be borrowed in isolation
         isolated: bool,
 
+        // unused
+        open_attributed_borrow_limit_usd: u64,
+        close_attributed_borrow_limit_usd: u64,
+
         additional_fields: Bag
     }
 
@@ -66,6 +70,8 @@ module suilend::reserve_config {
         interest_rate_utils: vector<u8>,
         interest_rate_aprs: vector<u64>,
         isolated: bool,
+        open_attributed_borrow_limit_usd: u64,
+        close_attributed_borrow_limit_usd: u64,
         ctx: &mut TxContext
     ): ReserveConfig {
         let config = ReserveConfig {
@@ -83,6 +89,8 @@ module suilend::reserve_config {
             spread_fee_bps,
             protocol_liquidation_fee_bps,
             isolated,
+            open_attributed_borrow_limit_usd,
+            close_attributed_borrow_limit_usd,
             additional_fields: bag::new(ctx)
         };
 
@@ -229,6 +237,8 @@ module suilend::reserve_config {
             spread_fee_bps: _,
             protocol_liquidation_fee_bps: _,
             isolated: _,
+            open_attributed_borrow_limit_usd: _,
+            close_attributed_borrow_limit_usd: _,
             additional_fields
         } = config;
 
@@ -253,6 +263,8 @@ module suilend::reserve_config {
         set_spread_fee_bps(&mut builder, config.spread_fee_bps);
         set_protocol_liquidation_fee_bps(&mut builder, config.protocol_liquidation_fee_bps);
         set_isolated(&mut builder, config.isolated);
+        set_open_attributed_borrow_limit_usd(&mut builder, config.open_attributed_borrow_limit_usd);
+        set_close_attributed_borrow_limit_usd(&mut builder, config.close_attributed_borrow_limit_usd);
 
         builder
     }
@@ -322,6 +334,14 @@ module suilend::reserve_config {
         set(builder, b"isolated", isolated);
     }
 
+    public fun set_open_attributed_borrow_limit_usd(builder: &mut ReserveConfigBuilder, open_attributed_borrow_limit_usd: u64) {
+        set(builder, b"open_attributed_borrow_limit_usd", open_attributed_borrow_limit_usd);
+    }
+
+    public fun set_close_attributed_borrow_limit_usd(builder: &mut ReserveConfigBuilder, close_attributed_borrow_limit_usd: u64) {
+        set(builder, b"close_attributed_borrow_limit_usd", close_attributed_borrow_limit_usd);
+    }
+
     public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
         let config = create_reserve_config(
             bag::remove(&mut builder.fields, b"open_ltv_pct"),
@@ -338,6 +358,8 @@ module suilend::reserve_config {
             bag::remove(&mut builder.fields, b"interest_rate_utils"),
             bag::remove(&mut builder.fields, b"interest_rate_aprs"),
             bag::remove(&mut builder.fields, b"isolated"),
+            bag::remove(&mut builder.fields, b"open_attributed_borrow_limit_usd"),
+            bag::remove(&mut builder.fields, b"close_attributed_borrow_limit_usd"),
             tx_context
         );
 
@@ -404,6 +426,8 @@ module suilend::reserve_config {
             utils,
             aprs,
             false,
+            0,
+            0,
             test_scenario::ctx(&mut scenario)
         );
 
@@ -455,6 +479,8 @@ module suilend::reserve_config {
                 v
             },
             false,
+            0,
+            0,
             test_scenario::ctx(&mut scenario)
         );
 
@@ -505,6 +531,8 @@ module suilend::reserve_config {
                 v
             },
             false,
+            18_446_744_073_709_551_615,
+            18_446_744_073_709_551_615,
             test_scenario::ctx(&mut scenario)
         );
 

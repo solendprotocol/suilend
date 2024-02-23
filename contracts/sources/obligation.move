@@ -69,7 +69,9 @@ module suilend::obligation {
         borrowing_isolated_asset: bool,
 
         /// unused
-        bad_debt_usd: Decimal
+        bad_debt_usd: Decimal,
+        /// unused
+        closable: bool
     }
 
     struct Deposit has store {
@@ -77,6 +79,8 @@ module suilend::obligation {
         reserve_array_index: u64,
         deposited_ctoken_amount: u64,
         market_value: Decimal,
+        /// unused
+        attributed_borrow_value: Decimal
     }
 
     struct Borrow has store {
@@ -100,7 +104,8 @@ module suilend::obligation {
             allowed_borrow_value_usd: decimal::from(0),
             unhealthy_borrow_value_usd: decimal::from(0),
             borrowing_isolated_asset: false,
-            bad_debt_usd: decimal::from(0)
+            bad_debt_usd: decimal::from(0),
+            closable: false
         }
     }
 
@@ -512,7 +517,8 @@ module suilend::obligation {
                 coin_type: _,
                 reserve_array_index: _,
                 deposited_ctoken_amount: _,
-                market_value: _
+                market_value: _,
+                attributed_borrow_value: _
             } = vector::remove(&mut obligation.deposits, deposit_index);
         };
     }
@@ -623,7 +629,8 @@ module suilend::obligation {
             coin_type: reserve::coin_type(reserve),
             reserve_array_index: reserve::array_index(reserve),
             deposited_ctoken_amount: 0,
-            market_value: decimal::from(0)
+            market_value: decimal::from(0),
+            attributed_borrow_value: decimal::from(0)
         };
 
         vector::push_back(&mut obligation.deposits, deposit);
