@@ -196,11 +196,6 @@ module suilend::liquidity_mining {
         while (i < vector::length(&incentive_manager.incentives)) {
             let incentive = vector::borrow_mut(&mut incentive_manager.incentives, i);
 
-            if (cur_time_ms < incentive.start_time_ms) {
-                i = i + 1;
-                continue
-            };
-
             if (!vec_map::contains(&farmer.rewards, &incentive.incentive_id)) {
                 if (cur_time_ms < incentive.start_time_ms + incentive.reward_distribution_period_ms) {
                     vec_map::insert(&mut farmer.rewards, incentive.incentive_id, Reward {
@@ -255,6 +250,9 @@ module suilend::liquidity_mining {
 
     #[test_only]
     struct USDC has drop {}
+
+    #[test_only]
+    struct SUI has drop {}
 
     #[test]
     fun test_incentive_manager_basic() {
@@ -323,5 +321,64 @@ module suilend::liquidity_mining {
         sui::test_utils::destroy(farmer_1);
         sui::test_utils::destroy(farmer_2);
         test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_incentive_manager_multiple_rewards() {
+        use sui::test_scenario::{Self};
+        use sui::balance::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let clock = clock::create_for_testing(ctx);
+        clock::set_for_testing(&mut clock, 0); 
+
+        let incentive_manager = new_incentive_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+
+        let sui = balance::create_for_testing<SUI>(100 * 1_000_000);
+        add_incentive(&mut incentive_manager, sui, 10 * 1000, 10 * 1000, &clock, ctx);
+
+        let farmer_1 = new_farmer(&mut incentive_manager, 100, &clock);
+
+        clock::set_for_testing(&mut clock, 15 * 1000);
+        let farmer_2 = new_farmer(&mut incentive_manager, 100, &clock);
+
+        clock::set_for_testing(&mut clock, 30 * 1000);
+        {
+            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            std::debug::print(&usdc);
+            assert!(balance::value(&usdc) == 87_500_000, 0);
+            sui::test_utils::destroy(usdc);
+        };
+        {
+            let sui = claim_rewards<SUI>(&mut incentive_manager, &mut farmer_1, &clock, 1);
+            std::debug::print(&sui);
+            assert!(balance::value(&sui) == 75 * 1_000_000, 0);
+            sui::test_utils::destroy(sui);
+        };
+
+        {
+            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
+            std::debug::print(&usdc);
+            assert!(balance::value(&usdc) == 12_500_000, 0);
+            sui::test_utils::destroy(usdc);
+        };
+        {
+            let sui = claim_rewards<SUI>(&mut incentive_manager, &mut farmer_2, &clock, 1);
+            std::debug::print(&sui);
+            assert!(balance::value(&sui) == 25 * 1_000_000, 0);
+            sui::test_utils::destroy(sui);
+        };
+
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(incentive_manager);
+        sui::test_utils::destroy(farmer_1);
+        sui::test_utils::destroy(farmer_2);
+        test_scenario::end(scenario);
+
     }
 }
