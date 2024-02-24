@@ -190,10 +190,6 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
-    public fun id<P>(reserve: &Reserve<P>): &UID {
-        &reserve.id
-    }
-
     public fun array_index<P>(reserve: &Reserve<P>): u64 {
         reserve.array_index
     }
