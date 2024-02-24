@@ -105,6 +105,7 @@ module suilend::reserve {
     struct InterestUpdateEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
         cumulative_borrow_rate: Decimal,
         available_amount: u64,
         borrowed_amount: Decimal,
@@ -121,6 +122,9 @@ module suilend::reserve {
     }
 
     struct ReserveAssetDataEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
+        reserve_id: address,
         available_amount: Decimal,
         supply_amount: Decimal,
         borrowed_amount: Decimal,
@@ -448,6 +452,7 @@ module suilend::reserve {
         event::emit(InterestUpdateEvent {
             lending_market: type_name::get<P>(),
             coin_type: reserve.coin_type,
+            reserve_id: object::uid_to_address(&reserve.id),
             cumulative_borrow_rate: reserve.cumulative_borrow_rate,
             available_amount: reserve.available_amount,
             borrowed_amount: reserve.borrowed_amount,
@@ -635,6 +640,9 @@ module suilend::reserve {
         let supply_apr = calculate_supply_apr(config(reserve), cur_util, borrow_apr);
 
         event::emit(ReserveAssetDataEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: reserve.coin_type,
+            reserve_id: object::uid_to_address(&reserve.id),
             available_amount: available_amount_decimal,
             supply_amount: supply_amount,
             borrowed_amount: reserve.borrowed_amount,
