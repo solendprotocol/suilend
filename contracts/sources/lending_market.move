@@ -89,6 +89,7 @@ module suilend::lending_market {
         coin_type: TypeName,
         ctoken_amount: u64,
         liquidity_amount: u64,
+        reserve_id: address,
     }
 
     struct DepositEvent has drop, copy {
@@ -96,6 +97,7 @@ module suilend::lending_market {
         coin_type: TypeName,
         ctoken_amount: u64,
         obligation_id: ID,
+        reserve_id: address,
     }
 
     struct WithdrawEvent has drop, copy {
@@ -103,6 +105,7 @@ module suilend::lending_market {
         coin_type: TypeName,
         ctoken_amount: u64,
         obligation_id: ID,
+        reserve_id: address,
     }
 
     struct BorrowEvent has drop, copy {
@@ -110,6 +113,7 @@ module suilend::lending_market {
         coin_type: TypeName,
         liquidity_amount: u64,
         obligation_id: ID,
+        reserve_id: address,
     }
 
     struct RepayEvent has drop, copy {
@@ -117,13 +121,14 @@ module suilend::lending_market {
         coin_type: TypeName,
         liquidity_amount: u64,
         obligation_id: ID,
+        reserve_id: address,
     }
 
     struct LiquidateEvent has drop, copy {
         lending_market: TypeName,
-        repay_coin_type: TypeName,
+        repay_reserve_id: address,
         repay_amount: u64,
-        withdraw_coin_type: TypeName,
+        withdraw_reserve_id: address,
         withdraw_amount: u64,
         obligation_id: ID,
     }
@@ -261,6 +266,7 @@ module suilend::lending_market {
             coin_type: type_name::get<T>(),
             ctoken_amount,
             liquidity_amount: balance::value(&liquidity),
+            reserve_id: object::uid_to_address(reserve::id(reserve)),
         });
 
         coin::from_balance(liquidity, ctx)
@@ -290,6 +296,7 @@ module suilend::lending_market {
             coin_type: type_name::get<T>(),
             ctoken_amount: coin::value(&deposit),
             obligation_id: obligation_owner_cap.obligation_id,
+            reserve_id: object::uid_to_address(reserve::id(reserve)),
         });
 
         obligation::deposit<P>(
@@ -339,6 +346,7 @@ module suilend::lending_market {
             coin_type: type_name::get<T>(),
             liquidity_amount: borrow_amount_with_fees,
             obligation_id: obligation_owner_cap.obligation_id,
+            reserve_id: object::uid_to_address(reserve::id(reserve)), 
         });
 
         coin::from_balance(receive_balance, ctx)
@@ -371,6 +379,7 @@ module suilend::lending_market {
             coin_type: type_name::get<T>(),
             ctoken_amount: amount,
             obligation_id: obligation_owner_cap.obligation_id,
+            reserve_id: object::uid_to_address(reserve::id(reserve)),
         });
 
         let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
@@ -419,12 +428,15 @@ module suilend::lending_market {
         let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
         reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
+        
+        let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
+        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
 
         event::emit(LiquidateEvent {
             lending_market: type_name::get<P>(),
-            repay_coin_type: type_name::get<Repay>(),
+            repay_reserve_id: object::uid_to_address(reserve::id(repay_reserve)),
             repay_amount: required_repay_amount,
-            withdraw_coin_type: type_name::get<Withdraw>(),
+            withdraw_reserve_id: object::uid_to_address(reserve::id(withdraw_reserve)),
             withdraw_amount: withdraw_ctoken_amount,
             obligation_id,
         });
@@ -468,6 +480,7 @@ module suilend::lending_market {
             coin_type: type_name::get<T>(),
             liquidity_amount: final_repay_amount,
             obligation_id,
+            reserve_id: object::uid_to_address(reserve::id(reserve)),
         });
 
     }
