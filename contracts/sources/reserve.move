@@ -333,7 +333,8 @@ module suilend::reserve {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
     }
 
-    public fun deduct_liquidation_fee<P, T>(
+    // === Public-Friend Functions
+    public(friend) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
     ) {
@@ -350,7 +351,6 @@ module suilend::reserve {
         balance::join(&mut balances.ctoken_fees, balance::split(ctokens, fee_amount));
     }
 
-    // === Public-Friend Functions
     public(friend) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
