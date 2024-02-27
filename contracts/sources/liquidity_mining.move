@@ -81,6 +81,14 @@ module suilend::liquidity_mining {
         farmer.incentive_manager_id
     }
 
+    public fun weight(farmer: &Farmer): u64 {
+        farmer.weight
+    }
+
+    public fun last_update_time_ms(farmer: &Farmer): u64 {
+        farmer.last_update_time_ms
+    }
+
     // === Public-Mutative Functions ===
     public fun new_incentive_manager(ctx: &mut TxContext): IncentiveManager {
         IncentiveManager {
@@ -202,11 +210,12 @@ module suilend::liquidity_mining {
     }
 
     public fun update_incentive_manager(incentive_manager: &mut IncentiveManager, clock: &Clock) {
+        let cur_time_ms = clock::timestamp_ms(clock);
+
         if (incentive_manager.total_weight == 0) {
+            incentive_manager.last_update_time_ms = cur_time_ms;
             return
         };
-
-        let cur_time_ms = clock::timestamp_ms(clock);
 
         let i = 0;
         while (i < vector::length(&incentive_manager.incentives)) {
@@ -272,7 +281,17 @@ module suilend::liquidity_mining {
                         optional_reward, 
                         Reward {
                             incentive_id: incentive.incentive_id,
-                            accumulated_rewards: decimal::from(0),
+                            accumulated_rewards: {
+                                if (farmer.last_update_time_ms < incentive.start_time_ms) {
+                                    mul(
+                                        incentive.cumulative_rewards_per_weight,
+                                        decimal::from(farmer.weight)
+                                    )
+                                }
+                                else {
+                                    decimal::from(0)
+                                }
+                            },
                             cumulative_rewards_per_weight: incentive.cumulative_rewards_per_weight
                         }
                     );
@@ -348,16 +367,16 @@ module suilend::liquidity_mining {
         incentive_manager: &mut IncentiveManager, 
         farmer: &mut Farmer, 
         clock: &Clock, 
-        index: u64
+        reward_index: u64
     ): Balance<T> {
         assert!(object::id(incentive_manager) == farmer.incentive_manager_id, EIdMismatch);
         assert!(incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), EIncentiveManagerNotUpdated);
         assert!(farmer.last_update_time_ms == clock::timestamp_ms(clock), EFarmerNotUpdated);
 
-        let incentive = option::borrow_mut(vector::borrow_mut(&mut incentive_manager.incentives, index));
+        let incentive = option::borrow_mut(vector::borrow_mut(&mut incentive_manager.incentives, reward_index));
         assert!(incentive.coin_type == type_name::get<T>(), EInvalidType);
 
-        let optional_reward = vector::borrow_mut(&mut farmer.rewards, index);
+        let optional_reward = vector::borrow_mut(&mut farmer.rewards, reward_index);
         let reward = option::borrow_mut(optional_reward);
 
         let claimable_rewards = floor(reward.accumulated_rewards);
@@ -585,6 +604,44 @@ module suilend::liquidity_mining {
         sui::test_utils::destroy(unallocated_rewards);
         sui::test_utils::destroy(farmer_rewards);
         sui::test_utils::destroy(dust_rewards);
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(incentive_manager);
+        sui::test_utils::destroy(farmer_1);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_incentive_manager_zero_weight() {
+        use sui::test_scenario::{Self};
+        use sui::balance::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let clock = clock::create_for_testing(ctx);
+        clock::set_for_testing(&mut clock, 0); 
+
+        let incentive_manager = new_incentive_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+
+        clock::set_for_testing(&mut clock, 10 * 1000);
+        update_incentive_manager(&mut incentive_manager, &clock);
+        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
+        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 1, &clock);
+
+        clock::set_for_testing(&mut clock, 20 * 1000);
+        update_incentive_manager(&mut incentive_manager, &clock);
+        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
+        {
+            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            std::debug::print(&usdc);
+            // 50 usdc is unallocated since there was zero weight from 0-10 seconds
+            assert!(balance::value(&usdc) == 50 * 1_000_000, 0);
+            sui::test_utils::destroy(usdc);
+        };
+
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(incentive_manager);
         sui::test_utils::destroy(farmer_1);

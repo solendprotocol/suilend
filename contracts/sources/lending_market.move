@@ -271,6 +271,7 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
         deposit: Coin<CToken<P, T>>,
         _ctx: &mut TxContext
     ) {
@@ -295,6 +296,7 @@ module suilend::lending_market {
         obligation::deposit<P>(
             obligation, 
             reserve,
+            clock,
             coin::value(&deposit)
         );
         reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
@@ -325,7 +327,7 @@ module suilend::lending_market {
         reserve::assert_price_is_fresh(reserve, clock);
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
-        obligation::borrow<P>(obligation, reserve, borrow_amount_with_fees);
+        obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
 
         let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
         rate_limiter::process_qty(
@@ -364,7 +366,7 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
-        obligation::withdraw<P>(obligation, reserve, amount);
+        obligation::withdraw<P>(obligation, reserve, clock, amount);
 
         event::emit(WithdrawEvent {
             lending_market: type_name::get<P>(),
@@ -396,16 +398,12 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
-        assert!(reserve::coin_type(repay_reserve) == type_name::get<Repay>(), EWrongType);
-
-        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
-        assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
-
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation, 
-            repay_reserve, 
-            withdraw_reserve, 
+            &mut lending_market.reserves,
+            repay_reserve_array_index,
+            withdraw_reserve_array_index,
+            clock,
             coin::value(repay_coins)
         );
 
@@ -414,9 +412,11 @@ module suilend::lending_market {
 
         let required_repay_coins = coin::split(repay_coins, required_repay_amount, ctx);
         let repay_reserve = vector::borrow_mut(&mut lending_market.reserves, repay_reserve_array_index);
+        assert!(reserve::coin_type(repay_reserve) == type_name::get<Repay>(), EWrongType);
         reserve::repay_liquidity<P, Repay>(repay_reserve, coin::into_balance(required_repay_coins));
 
         let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
+        assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
         reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
 
@@ -457,6 +457,7 @@ module suilend::lending_market {
         let final_repay_amount = obligation::repay<P>(
             obligation, 
             reserve, 
+            clock,
             decimal::from(coin::value(max_repay_coins))
         );
 
@@ -470,6 +471,40 @@ module suilend::lending_market {
             obligation_id,
         });
 
+    }
+
+    public fun claim_rewards<P, RewardType>(
+        lending_market: &mut LendingMarket<P>,
+        cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+        reserve_id: u64,
+        reward_index: u64,
+        is_deposit_reward: bool,
+        ctx: &mut TxContext
+    ): Coin<RewardType> {
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            cap.obligation_id
+        );
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_id);
+        reserve::compound_interest(reserve, clock);
+
+        let incentive_manager = if (is_deposit_reward) {
+            reserve::deposits_incentive_manager_mut(reserve)
+        } else {
+            reserve::borrows_incentive_manager_mut(reserve)
+        };
+
+        coin::from_balance(
+            obligation::claim_rewards<P, RewardType>(
+                obligation, 
+                incentive_manager,
+                clock,
+                reward_index
+            ),
+            ctx
+        )
     }
 
 
@@ -851,6 +886,7 @@ module suilend::lending_market {
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
+            &clock,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
@@ -1005,6 +1041,7 @@ module suilend::lending_market {
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
+            &clock,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
@@ -1168,6 +1205,7 @@ module suilend::lending_market {
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
+            &clock,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
@@ -1293,6 +1331,7 @@ module suilend::lending_market {
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             &obligation_owner_cap,
+            &clock,
             ctokens,
             test_scenario::ctx(&mut scenario)
         );
