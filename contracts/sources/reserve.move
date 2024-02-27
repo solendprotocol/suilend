@@ -29,6 +29,7 @@ module suilend::reserve {
         spread_fee,
         liquidation_bonus
     };
+    use suilend::liquidity_mining::{Self, IncentiveManager};
 
     #[test_only]
     use sui::test_scenario::{Self};
@@ -81,7 +82,10 @@ module suilend::reserve {
         unclaimed_spread_fees: Decimal,
 
         /// unused
-        attributed_borrow_value: Decimal
+        attributed_borrow_value: Decimal,
+
+        deposits_incentive_manager: IncentiveManager,
+        borrows_incentive_manager: IncentiveManager,
     }
 
     /// Interest bearing token on the underlying Coin<T>. The ctoken can be redeemed for 
@@ -140,7 +144,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_incentive_manager: liquidity_mining::new_incentive_manager(ctx),
+            borrows_incentive_manager: liquidity_mining::new_incentive_manager(ctx)
         };
 
         dynamic_field::add(
@@ -159,6 +165,14 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+    public fun borrows_incentive_manager<P>(reserve: &Reserve<P>): &IncentiveManager {
+        &reserve.borrows_incentive_manager
+    }
+
+    public fun deposits_incentive_manager<P>(reserve: &Reserve<P>): &IncentiveManager {
+        &reserve.deposits_incentive_manager
+    }
+
     public fun array_index<P>(reserve: &Reserve<P>): u64 {
         reserve.array_index
     }
@@ -331,6 +345,15 @@ module suilend::reserve {
         borrow_amount: u64
     ): u64 {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
+    }
+
+    // === Public-Mutative Functions
+    public fun deposits_incentive_manager_mut<P>(reserve: &mut Reserve<P>): &mut IncentiveManager {
+        &mut reserve.deposits_incentive_manager
+    }
+
+    public fun borrows_incentive_manager_mut<P>(reserve: &mut Reserve<P>): &mut IncentiveManager {
+        &mut reserve.borrows_incentive_manager
     }
 
     // === Public-Friend Functions
@@ -583,7 +606,6 @@ module suilend::reserve {
         balance::split(&mut balances.deposited_ctokens, amount)
     }
 
-
     // === Test Functions ===
     #[test_only]
     public fun update_price_for_testing<P>(
@@ -636,7 +658,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_incentive_manager: liquidity_mining::new_incentive_manager(test_scenario::ctx(&mut scenario)),
+            borrows_incentive_manager: liquidity_mining::new_incentive_manager(test_scenario::ctx(&mut scenario))
         };
 
         assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
@@ -694,7 +718,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_incentive_manager: liquidity_mining::new_incentive_manager(test_scenario::ctx(&mut scenario)),
+            borrows_incentive_manager: liquidity_mining::new_incentive_manager(test_scenario::ctx(&mut scenario))
         };
 
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
@@ -1239,7 +1265,9 @@ module suilend::reserve {
             cumulative_borrow_rate,
             interest_last_update_timestamp_s,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_incentive_manager: liquidity_mining::new_incentive_manager(ctx),
+            borrows_incentive_manager: liquidity_mining::new_incentive_manager(ctx)
         };
 
         dynamic_field::add(

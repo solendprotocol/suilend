@@ -541,6 +541,15 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
+    public fun reserve_mut<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+    ): &mut Reserve<P> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        vector::borrow_mut(&mut lending_market.reserves, reserve_array_index)
+    }
+
     public fun update_rate_limiter_config<P>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
