@@ -520,12 +520,12 @@ module suilend::reserve {
             EDepositLimitExceeded
         );
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
             &mut reserve.id, 
             BalanceKey {}
         );
 
-        log_reserve_data(reserve);
         balance::join(&mut balances.available_amount, liquidity);
         balance::increase_supply(&mut balances.ctoken_supply, new_ctokens)
     }
@@ -545,12 +545,12 @@ module suilend::reserve {
 
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
             &mut reserve.id, 
             BalanceKey {}
         );
 
-        log_reserve_data(reserve);
         balance::decrease_supply(&mut balances.ctoken_supply, ctokens);
         balance::split(&mut balances.available_amount, liquidity_amount)
     }
