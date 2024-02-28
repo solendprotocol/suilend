@@ -519,7 +519,12 @@ module suilend::obligation {
         clock: &Clock,
         reward_index: u64,
     ): Balance<T> {
-        let farmer = vector::borrow_mut(&mut obligation.farmers, reward_index);
+
+        let farmer_index = find_farmer_index(obligation, incentive_manager);
+        let farmer = vector::borrow_mut(&mut obligation.farmers, farmer_index);
+
+        liquidity_mining::update_incentive_manager(incentive_manager, clock);
+        liquidity_mining::update_farmer(incentive_manager, farmer, clock);
         liquidity_mining::claim_rewards<T>(incentive_manager, farmer, clock, reward_index)
     }
 
