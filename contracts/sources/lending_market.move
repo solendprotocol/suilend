@@ -576,7 +576,7 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    public fun reserve_mut<P, T>(
+    public fun reserve_mut<P>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
@@ -612,19 +612,6 @@ module suilend::lending_market {
 
     // === Private Functions ===
     // === Test Functions ===
-    #[test_only]
-    public fun print_obligation<P>(
-        lending_market: &LendingMarket<P>,
-        obligation_id: ID
-    ) {
-        let obligation: &Obligation<P> = object_table::borrow(
-            &lending_market.obligations, 
-            obligation_id
-        );
-
-        std::debug::print(obligation);
-    }
-
     #[test_only]
     public fun destroy_for_testing<P>(obligation_owner_cap: ObligationOwnerCap<P>) {
         let ObligationOwnerCap { id, obligation_id: _ } = obligation_owner_cap;
@@ -1059,7 +1046,6 @@ module suilend::lending_market {
             mock_pyth::get_price_obj<TEST_SUI>(&prices)
         );
 
-        std::debug::print(&lending_market);
         let sui = borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
@@ -1223,7 +1209,6 @@ module suilend::lending_market {
             mock_pyth::get_price_obj<TEST_SUI>(&prices)
         );
 
-        std::debug::print(&lending_market);
         let sui = borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
@@ -1467,7 +1452,6 @@ module suilend::lending_market {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
-        use suilend::mock_pyth::{Self};
         use suilend::reserve_config::{Self, default_reserve_config};
         use suilend::liquidity_mining::{Self};
 
@@ -1506,7 +1490,7 @@ module suilend::lending_market {
             bag
         }, &mut scenario);
 
-        let usdc_reserve = reserve_mut<LENDING_MARKET, TEST_USDC>(
+        let usdc_reserve = reserve_mut<LENDING_MARKET>(
             &owner_cap, 
             &mut lending_market, 
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>())

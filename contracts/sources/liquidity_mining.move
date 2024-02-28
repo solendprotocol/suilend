@@ -440,7 +440,6 @@ module suilend::liquidity_mining {
 
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
         change_farmer_weight(&mut incentive_manager, &mut farmer_1, 100, &clock);
-        std::debug::print(&farmer_1);
 
         // at this point, farmer 1 has earned 50 dollars
         clock::set_for_testing(&mut clock, 5 * 1000);
@@ -448,7 +447,6 @@ module suilend::liquidity_mining {
         update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-            std::debug::print(&usdc);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
@@ -462,13 +460,11 @@ module suilend::liquidity_mining {
         update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-            std::debug::print(&usdc);
             assert!(balance::value(&usdc) == 5 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
-            std::debug::print(&usdc);
             assert!(balance::value(&usdc) == 20 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
@@ -482,13 +478,11 @@ module suilend::liquidity_mining {
         update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-            std::debug::print(&usdc);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
-            std::debug::print(&usdc);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
@@ -553,10 +547,6 @@ module suilend::liquidity_mining {
             sui::test_utils::destroy(sui);
         };
 
-        std::debug::print(&farmer_1);
-        std::debug::print(&farmer_2);
-        std::debug::print(&incentive_manager);
-
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(incentive_manager);
         sui::test_utils::destroy(farmer_1);
@@ -588,7 +578,6 @@ module suilend::liquidity_mining {
         update_incentive_manager(&mut incentive_manager, &clock);
 
         let unallocated_rewards = cancel_incentive<USDC>(&mut incentive_manager, 0, &clock);
-        std::debug::print(&incentive_manager);
         assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
@@ -599,8 +588,6 @@ module suilend::liquidity_mining {
 
         let dust_rewards = close_incentive<USDC>(&mut incentive_manager, 0, &clock);
         assert!(balance::value(&dust_rewards) == 0, 0);
-
-        std::debug::print(&incentive_manager);
 
         sui::test_utils::destroy(unallocated_rewards);
         sui::test_utils::destroy(farmer_rewards);
@@ -637,7 +624,6 @@ module suilend::liquidity_mining {
         update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-            std::debug::print(&usdc);
             // 50 usdc is unallocated since there was zero weight from 0-10 seconds
             assert!(balance::value(&usdc) == 50 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
@@ -677,8 +663,6 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 20 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
         update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
-        std::debug::print(&incentive_manager);
-        std::debug::print(&farmer_1);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
             assert!(balance::value(&usdc) == 75 * 1_000_000, 0);

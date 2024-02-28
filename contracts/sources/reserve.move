@@ -557,8 +557,6 @@ module suilend::reserve {
         );
 
         let borrowed_amount = reserve.borrowed_amount;
-        std::debug::print(&borrowed_amount);
-        std::debug::print(&market_value_upper_bound(reserve, borrowed_amount));
         assert!(
             le(
                 market_value_upper_bound(reserve, borrowed_amount), 
@@ -913,7 +911,6 @@ module suilend::reserve {
         let ctokens = balance::create_for_testing(10);
         let tokens = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
 
-        std::debug::print(&tokens);
         assert!(balance::value(&tokens) == 50, 0);
         assert!(reserve.available_amount == available_amount_old - 50, 0);
         assert!(reserve.ctoken_supply == ctoken_supply_old - 10, 0);
