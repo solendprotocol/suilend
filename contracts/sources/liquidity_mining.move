@@ -36,12 +36,11 @@ module suilend::liquidity_mining {
         pool_rewards: vector<Option<PoolReward>>,
 
         last_update_time_ms: u64,
-        num_pool_rewards: u64,
     }
 
-    struct PoolReward has store {
+    struct PoolReward has key, store {
+        id: UID,
         pool_reward_manager_id: ID,
-        pool_reward_id: u64,
 
         coin_type: TypeName,
 
@@ -71,7 +70,7 @@ module suilend::liquidity_mining {
     }
 
     struct UserReward has store {
-        pool_reward_id: u64,
+        pool_reward_id: ID,
 
         earned_rewards: Decimal,
         cumulative_rewards_per_share: Decimal,
@@ -97,7 +96,6 @@ module suilend::liquidity_mining {
             total_shares: 0,
             pool_rewards: vector::empty(),
             last_update_time_ms: 0,
-            num_pool_rewards: 0,
         }
     }
 
@@ -113,8 +111,8 @@ module suilend::liquidity_mining {
         assert!(start_time_ms < end_time_ms, EInvalidTime);
 
         let pool_reward = PoolReward {
+            id: object::new(ctx),
             pool_reward_manager_id: object::id(pool_reward_manager),
-            pool_reward_id: pool_reward_manager.num_pool_rewards,
             coin_type: type_name::get<T>(),
             start_time_ms,
             end_time_ms,
@@ -134,8 +132,6 @@ module suilend::liquidity_mining {
 
         let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, i);
         option::fill(optional_pool_reward, pool_reward);
-
-        pool_reward_manager.num_pool_rewards = pool_reward_manager.num_pool_rewards + 1;
     }
 
     /// Close pool_reward campaign, claim dust amounts of rewards, and destroy object.
@@ -148,8 +144,8 @@ module suilend::liquidity_mining {
     ): Balance<T> {
         let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, index);
         let PoolReward {
+            id,
             pool_reward_manager_id: _, 
-            pool_reward_id: _, 
             coin_type: _, 
             start_time_ms: _, 
             end_time_ms, 
@@ -159,6 +155,8 @@ module suilend::liquidity_mining {
             num_user_reward_managers, 
             additional_fields,
         } = option::extract(optional_pool_reward);
+
+        object::delete(id);
 
         let cur_time_ms = clock::timestamp_ms(clock);
 
@@ -286,7 +284,7 @@ module suilend::liquidity_mining {
                     option::fill(
                         optional_reward, 
                         UserReward {
-                            pool_reward_id: pool_reward.pool_reward_id,
+                            pool_reward_id: object::id(pool_reward),
                             earned_rewards: {
                                 if (user_reward_manager.last_update_time_ms <= pool_reward.start_time_ms) {
                                     mul(
