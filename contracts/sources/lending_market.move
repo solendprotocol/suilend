@@ -490,16 +490,16 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_id);
         reserve::compound_interest(reserve, clock);
 
-        let incentive_manager = if (is_deposit_reward) {
-            reserve::deposits_incentive_manager_mut(reserve)
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve::deposits_pool_reward_manager_mut(reserve)
         } else {
-            reserve::borrows_incentive_manager_mut(reserve)
+            reserve::borrows_pool_reward_manager_mut(reserve)
         };
 
         coin::from_balance(
             obligation::claim_rewards<P, RewardType>(
                 obligation, 
-                incentive_manager,
+                pool_reward_manager,
                 clock,
                 reward_index
             ),
@@ -1498,10 +1498,10 @@ module suilend::lending_market {
 
         let usdc_rewards = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let sui_rewards = coin::mint_for_testing<TEST_SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let incentive_manager = reserve::deposits_incentive_manager_mut(usdc_reserve);
+        let pool_reward_manager = reserve::deposits_pool_reward_manager_mut(usdc_reserve);
 
-        liquidity_mining::add_incentive(
-            incentive_manager,
+        liquidity_mining::add_pool_reward(
+            pool_reward_manager,
             coin::into_balance(usdc_rewards),
             0,
             10 * 1_000,
@@ -1509,8 +1509,8 @@ module suilend::lending_market {
             test_scenario::ctx(&mut scenario)
         );
 
-        liquidity_mining::add_incentive(
-            incentive_manager,
+        liquidity_mining::add_pool_reward(
+            pool_reward_manager,
             coin::into_balance(sui_rewards),
             4_000,
             14_000,

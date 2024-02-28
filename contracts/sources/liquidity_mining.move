@@ -1,4 +1,4 @@
-/// A farmer farms incentives to receive rewards proportional to their stake in the pool.
+/// A user_reward_manager farms pool_rewards to receive rewards proportional to their stake in the pool.
 module suilend::liquidity_mining {
     use suilend::decimal::{Self, Decimal, add, sub, mul, div, floor};
     use sui::object::{Self, ID, UID};
@@ -15,11 +15,11 @@ module suilend::liquidity_mining {
     const EIdMismatch: u64 = 0;
     const EInvalidTime: u64 = 1;
     const EInvalidType: u64 = 2;
-    const EMaxConcurrentIncentivesViolated: u64 = 3;
+    const EMaxConcurrentPoolRewardsViolated: u64 = 3;
     const ENotAllRewardsClaimed: u64 = 4;
-    const EIncentivePeriodNotOver: u64 = 5;
-    const EIncentiveManagerNotUpdated: u64 = 6;
-    const EFarmerNotUpdated: u64 = 7;
+    const EPoolRewardPeriodNotOver: u64 = 5;
+    const EPoolRewardManagerNotUpdated: u64 = 6;
+    const EUserRewardManagerNotUpdated: u64 = 7;
 
     // === Constants ===
     const MAX_REWARDS: u64 = 5;
@@ -28,20 +28,20 @@ module suilend::liquidity_mining {
     friend suilend::lending_market;
     friend suilend::obligation;
 
-    /// This struct manages all incentives for a given stake pool.
-    struct IncentiveManager has key, store {
+    /// This struct manages all pool_rewards for a given stake pool.
+    struct PoolRewardManager has key, store {
         id: UID,
 
         total_shares: u64,
-        incentives: vector<Option<Incentive>>,
+        pool_rewards: vector<Option<PoolReward>>,
 
         last_update_time_ms: u64,
-        num_incentives: u64,
+        num_pool_rewards: u64,
     }
 
-    struct Incentive has store {
-        incentive_manager_id: ID,
-        incentive_id: u64,
+    struct PoolReward has store {
+        pool_reward_manager_id: ID,
+        pool_reward_id: u64,
 
         coin_type: TypeName,
 
@@ -53,7 +53,7 @@ module suilend::liquidity_mining {
 
         cumulative_rewards_per_share: Decimal,
 
-        num_farmers: u64,
+        num_user_reward_managers: u64,
 
         additional_fields: Bag
     }
@@ -61,47 +61,47 @@ module suilend::liquidity_mining {
     // == Dynamic Field Keys
     struct RewardBalance<phantom T> has copy, store, drop {}
 
-    struct Farmer has store {
-        incentive_manager_id: ID,
+    struct UserRewardManager has store {
+        pool_reward_manager_id: ID,
         share: u64,
 
-        rewards: vector<Option<Reward>>,
+        rewards: vector<Option<UserReward>>,
         last_update_time_ms: u64,
     }
 
-    struct Reward has store {
-        incentive_id: u64,
+    struct UserReward has store {
+        pool_reward_id: u64,
 
         accumulated_rewards: Decimal,
         cumulative_rewards_per_share: Decimal,
     }
 
     // === Public-View Functions ===
-    public fun incentive_manager_id(farmer: &Farmer): ID {
-        farmer.incentive_manager_id
+    public fun pool_reward_manager_id(user_reward_manager: &UserRewardManager): ID {
+        user_reward_manager.pool_reward_manager_id
     }
 
-    public fun shares(farmer: &Farmer): u64 {
-        farmer.share
+    public fun shares(user_reward_manager: &UserRewardManager): u64 {
+        user_reward_manager.share
     }
 
-    public fun last_update_time_ms(farmer: &Farmer): u64 {
-        farmer.last_update_time_ms
+    public fun last_update_time_ms(user_reward_manager: &UserRewardManager): u64 {
+        user_reward_manager.last_update_time_ms
     }
 
     // === Public-Mutative Functions ===
-    public fun new_incentive_manager(ctx: &mut TxContext): IncentiveManager {
-        IncentiveManager {
+    public fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
+        PoolRewardManager {
             id: object::new(ctx),
             total_shares: 0,
-            incentives: vector::empty(),
+            pool_rewards: vector::empty(),
             last_update_time_ms: 0,
-            num_incentives: 0,
+            num_pool_rewards: 0,
         }
     }
 
-    public fun add_incentive<T>(
-        incentive_manager: &mut IncentiveManager,
+    public fun add_pool_reward<T>(
+        pool_reward_manager: &mut PoolRewardManager,
         rewards: Balance<T>,
         start_time_ms: u64,
         end_time_ms: u64,
@@ -111,16 +111,16 @@ module suilend::liquidity_mining {
         let start_time_ms = math::max(start_time_ms, clock::timestamp_ms(clock));
         assert!(start_time_ms < end_time_ms, EInvalidTime);
 
-        let incentive = Incentive {
-            incentive_manager_id: object::id(incentive_manager),
-            incentive_id: incentive_manager.num_incentives,
+        let pool_reward = PoolReward {
+            pool_reward_manager_id: object::id(pool_reward_manager),
+            pool_reward_id: pool_reward_manager.num_pool_rewards,
             coin_type: type_name::get<T>(),
             start_time_ms,
             end_time_ms,
             total_rewards: balance::value(&rewards),
             allocated_rewards: decimal::from(0),
             cumulative_rewards_per_share: decimal::from(0),
-            num_farmers: 0,
+            num_user_reward_managers: 0,
             additional_fields: {
                 let bag = bag::new(ctx);
                 bag::add(&mut bag, RewardBalance<T> {}, rewards);
@@ -128,41 +128,41 @@ module suilend::liquidity_mining {
             }
         };
 
-        let i = find_available_index(incentive_manager);
-        assert!(i < MAX_REWARDS, EMaxConcurrentIncentivesViolated);
+        let i = find_available_index(pool_reward_manager);
+        assert!(i < MAX_REWARDS, EMaxConcurrentPoolRewardsViolated);
 
-        let optional_incentive = vector::borrow_mut(&mut incentive_manager.incentives, i);
-        option::fill(optional_incentive, incentive);
+        let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, i);
+        option::fill(optional_pool_reward, pool_reward);
 
-        incentive_manager.num_incentives = incentive_manager.num_incentives + 1;
+        pool_reward_manager.num_pool_rewards = pool_reward_manager.num_pool_rewards + 1;
     }
 
-    /// Close incentive campaign, claim dust amounts of rewards, and destroy object.
-    /// This can only be called if the incentive period is over and all rewards have been claimed.
-    public fun close_incentive<T>(
-        incentive_manager: 
-        &mut IncentiveManager, 
+    /// Close pool_reward campaign, claim dust amounts of rewards, and destroy object.
+    /// This can only be called if the pool_reward period is over and all rewards have been claimed.
+    public fun close_pool_reward<T>(
+        pool_reward_manager: 
+        &mut PoolRewardManager, 
         index: u64, 
         clock: &Clock
     ): Balance<T> {
-        let optional_incentive = vector::borrow_mut(&mut incentive_manager.incentives, index);
-        let Incentive {
-            incentive_manager_id: _, 
-            incentive_id: _, 
+        let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, index);
+        let PoolReward {
+            pool_reward_manager_id: _, 
+            pool_reward_id: _, 
             coin_type: _, 
             start_time_ms: _, 
             end_time_ms, 
             total_rewards: _, 
             allocated_rewards: _,
             cumulative_rewards_per_share: _, 
-            num_farmers, 
+            num_user_reward_managers, 
             additional_fields,
-        } = option::extract(optional_incentive);
+        } = option::extract(optional_pool_reward);
 
         let cur_time_ms = clock::timestamp_ms(clock);
 
-        assert!(cur_time_ms >= end_time_ms, EIncentivePeriodNotOver);
-        assert!(num_farmers == 0, ENotAllRewardsClaimed);
+        assert!(cur_time_ms >= end_time_ms, EPoolRewardPeriodNotOver);
+        assert!(num_user_reward_managers == 0, ENotAllRewardsClaimed);
 
         let reward_balance: Balance<T> = bag::remove(
             &mut additional_fields,
@@ -174,240 +174,244 @@ module suilend::liquidity_mining {
         reward_balance
     }
 
-    /// Cancel incentive campaign and claim unallocated rewards. Effectively sets the 
-    /// end time of the incentive campaign to the current time.
-    public fun cancel_incentive<T>(
-        incentive_manager: &mut IncentiveManager,
+    /// Cancel pool_reward campaign and claim unallocated rewards. Effectively sets the 
+    /// end time of the pool_reward campaign to the current time.
+    public fun cancel_pool_reward<T>(
+        pool_reward_manager: &mut PoolRewardManager,
         index: u64,
         clock: &Clock
     ): Balance<T> {
-        update_incentive_manager(incentive_manager, clock);
+        update_pool_reward_manager(pool_reward_manager, clock);
 
-        let incentive = option::borrow_mut(vector::borrow_mut(&mut incentive_manager.incentives, index));
+        let pool_reward = option::borrow_mut(vector::borrow_mut(&mut pool_reward_manager.pool_rewards, index));
         let cur_time_ms = clock::timestamp_ms(clock);
 
         let unallocated_rewards = floor(sub(
-            decimal::from(incentive.total_rewards),
-            incentive.allocated_rewards
+            decimal::from(pool_reward.total_rewards),
+            pool_reward.allocated_rewards
         ));
 
-        incentive.end_time_ms = cur_time_ms;
-        incentive.total_rewards = 0;
+        pool_reward.end_time_ms = cur_time_ms;
+        pool_reward.total_rewards = 0;
 
         let reward_balance: &mut Balance<T> = bag::borrow_mut(
-            &mut incentive.additional_fields,
+            &mut pool_reward.additional_fields,
             RewardBalance<T> {}
         );
 
         balance::split(reward_balance, unallocated_rewards)
     }
 
-    public fun update_incentive_manager(incentive_manager: &mut IncentiveManager, clock: &Clock) {
+    public fun update_pool_reward_manager(pool_reward_manager: &mut PoolRewardManager, clock: &Clock) {
         let cur_time_ms = clock::timestamp_ms(clock);
 
-        if (cur_time_ms == incentive_manager.last_update_time_ms) {
+        if (cur_time_ms == pool_reward_manager.last_update_time_ms) {
             return
         };
 
-        if (incentive_manager.total_shares == 0) {
-            incentive_manager.last_update_time_ms = cur_time_ms;
+        if (pool_reward_manager.total_shares == 0) {
+            pool_reward_manager.last_update_time_ms = cur_time_ms;
             return
         };
 
         let i = 0;
-        while (i < vector::length(&incentive_manager.incentives)) {
-            let optional_incentive = vector::borrow_mut(&mut incentive_manager.incentives, i);
-            if (option::is_none(optional_incentive)) {
+        while (i < vector::length(&pool_reward_manager.pool_rewards)) {
+            let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, i);
+            if (option::is_none(optional_pool_reward)) {
                 i = i + 1;
                 continue
             };
 
-            let incentive = option::borrow_mut(optional_incentive);
-            if (cur_time_ms < incentive.start_time_ms || 
-                incentive_manager.last_update_time_ms >= incentive.end_time_ms) {
+            let pool_reward = option::borrow_mut(optional_pool_reward);
+            if (cur_time_ms < pool_reward.start_time_ms || 
+                pool_reward_manager.last_update_time_ms >= pool_reward.end_time_ms) {
                 i = i + 1;
                 continue
             };
 
-            let time_passed_ms = math::min(cur_time_ms, incentive.end_time_ms) - 
-                math::max(incentive.start_time_ms, incentive_manager.last_update_time_ms);
+            let time_passed_ms = math::min(cur_time_ms, pool_reward.end_time_ms) - 
+                math::max(pool_reward.start_time_ms, pool_reward_manager.last_update_time_ms);
 
             let unlocked_rewards = div(
                 mul(
-                    decimal::from(incentive.total_rewards),
+                    decimal::from(pool_reward.total_rewards),
                     decimal::from(time_passed_ms)
                 ),
-                decimal::from(incentive.end_time_ms - incentive.start_time_ms)
+                decimal::from(pool_reward.end_time_ms - pool_reward.start_time_ms)
             );
-            incentive.allocated_rewards = add(incentive.allocated_rewards, unlocked_rewards);
+            pool_reward.allocated_rewards = add(pool_reward.allocated_rewards, unlocked_rewards);
 
-            incentive.cumulative_rewards_per_share = add(
-                incentive.cumulative_rewards_per_share,
+            pool_reward.cumulative_rewards_per_share = add(
+                pool_reward.cumulative_rewards_per_share,
                 div(
                     unlocked_rewards,
-                    decimal::from(incentive_manager.total_shares)
+                    decimal::from(pool_reward_manager.total_shares)
                 )
             );
 
             i = i + 1;
         };
 
-        incentive_manager.last_update_time_ms = cur_time_ms;
+        pool_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
-    public fun update_farmer(incentive_manager: &mut IncentiveManager, farmer: &mut Farmer, clock: &Clock) {
-        assert!(object::id(incentive_manager) == farmer.incentive_manager_id, EIdMismatch);
+    public fun update_user_reward_manager(
+        pool_reward_manager: &mut PoolRewardManager, 
+        user_reward_manager: &mut UserRewardManager, 
+        clock: &Clock
+    ) {
+        assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
 
         let cur_time_ms = clock::timestamp_ms(clock);
-        assert!(incentive_manager.last_update_time_ms == cur_time_ms, EIncentiveManagerNotUpdated);
+        assert!(pool_reward_manager.last_update_time_ms == cur_time_ms, EPoolRewardManagerNotUpdated);
 
         let i = 0;
-        while (i < vector::length(&incentive_manager.incentives)) {
-            let optional_incentive = vector::borrow_mut(&mut incentive_manager.incentives, i);
-            if (option::is_none(optional_incentive)) {
+        while (i < vector::length(&pool_reward_manager.pool_rewards)) {
+            let optional_pool_reward = vector::borrow_mut(&mut pool_reward_manager.pool_rewards, i);
+            if (option::is_none(optional_pool_reward)) {
                 i = i + 1;
                 continue
             };
 
-            let incentive = option::borrow_mut(optional_incentive);
+            let pool_reward = option::borrow_mut(optional_pool_reward);
 
-            if (vector::length(&farmer.rewards) == i) {
-                vector::push_back(&mut farmer.rewards, option::none());
+            if (vector::length(&user_reward_manager.rewards) == i) {
+                vector::push_back(&mut user_reward_manager.rewards, option::none());
             };
 
-            let optional_reward = vector::borrow_mut(&mut farmer.rewards, i);
+            let optional_reward = vector::borrow_mut(&mut user_reward_manager.rewards, i);
             if (option::is_none(optional_reward)) {
-                if (farmer.last_update_time_ms <= incentive.end_time_ms) {
+                if (user_reward_manager.last_update_time_ms <= pool_reward.end_time_ms) {
                     option::fill(
                         optional_reward, 
-                        Reward {
-                            incentive_id: incentive.incentive_id,
+                        UserReward {
+                            pool_reward_id: pool_reward.pool_reward_id,
                             accumulated_rewards: {
-                                if (farmer.last_update_time_ms <= incentive.start_time_ms) {
+                                if (user_reward_manager.last_update_time_ms <= pool_reward.start_time_ms) {
                                     mul(
-                                        incentive.cumulative_rewards_per_share,
-                                        decimal::from(farmer.share)
+                                        pool_reward.cumulative_rewards_per_share,
+                                        decimal::from(user_reward_manager.share)
                                     )
                                 }
                                 else {
                                     decimal::from(0)
                                 }
                             },
-                            cumulative_rewards_per_share: incentive.cumulative_rewards_per_share
+                            cumulative_rewards_per_share: pool_reward.cumulative_rewards_per_share
                         }
                     );
 
-                    incentive.num_farmers = incentive.num_farmers + 1;
+                    pool_reward.num_user_reward_managers = pool_reward.num_user_reward_managers + 1;
                 };
             }
             else {
                 let reward = option::borrow_mut(optional_reward);
                 let new_rewards = mul(
                     sub(
-                        incentive.cumulative_rewards_per_share,
+                        pool_reward.cumulative_rewards_per_share,
                         reward.cumulative_rewards_per_share
                     ),
-                    decimal::from(farmer.share),
+                    decimal::from(user_reward_manager.share),
                 );
 
                 reward.accumulated_rewards = add(reward.accumulated_rewards, new_rewards);
-                reward.cumulative_rewards_per_share = incentive.cumulative_rewards_per_share;
+                reward.cumulative_rewards_per_share = pool_reward.cumulative_rewards_per_share;
             };
 
             i = i + 1;
         };
 
-        farmer.last_update_time_ms = cur_time_ms;
+        user_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
     // === Public-Friend functions
-    /// Create a new farmer object with zero share.
-    public(friend) fun new_farmer(
-        incentive_manager: &mut IncentiveManager,
+    /// Create a new user_reward_manager object with zero share.
+    public(friend) fun new_user_reward_manager(
+        pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock,
-    ): Farmer {
+    ): UserRewardManager {
         assert!(
-            incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), 
-            EIncentiveManagerNotUpdated
+            pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), 
+            EPoolRewardManagerNotUpdated
         );
 
-        let farmer = Farmer {
-            incentive_manager_id: object::id(incentive_manager),
+        let user_reward_manager = UserRewardManager {
+            pool_reward_manager_id: object::id(pool_reward_manager),
             share: 0,
             rewards: vector::empty(),
             last_update_time_ms: clock::timestamp_ms(clock),
         };
 
         // needed to populate the rewards vector
-        update_farmer(incentive_manager, &mut farmer, clock);
+        update_user_reward_manager(pool_reward_manager, &mut user_reward_manager, clock);
 
-        farmer
+        user_reward_manager
     }
 
-    public(friend) fun change_farmer_share(
-        incentive_manager: &mut IncentiveManager, 
-        farmer: &mut Farmer, 
+    public(friend) fun change_user_reward_manager_share(
+        pool_reward_manager: &mut PoolRewardManager, 
+        user_reward_manager: &mut UserRewardManager, 
         new_share: u64, 
         clock: &Clock
     ) {
-        assert!(object::id(incentive_manager) == farmer.incentive_manager_id, EIdMismatch);
-        assert!(incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), EIncentiveManagerNotUpdated);
-        assert!(farmer.last_update_time_ms == clock::timestamp_ms(clock), EFarmerNotUpdated);
+        assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
+        assert!(pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EPoolRewardManagerNotUpdated);
+        assert!(user_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EUserRewardManagerNotUpdated);
 
-        incentive_manager.total_shares = incentive_manager.total_shares - farmer.share + new_share;
-        farmer.share = new_share;
+        pool_reward_manager.total_shares = pool_reward_manager.total_shares - user_reward_manager.share + new_share;
+        user_reward_manager.share = new_share;
     }
 
     public(friend) fun claim_rewards<T>(
-        incentive_manager: &mut IncentiveManager, 
-        farmer: &mut Farmer, 
+        pool_reward_manager: &mut PoolRewardManager, 
+        user_reward_manager: &mut UserRewardManager, 
         clock: &Clock, 
         reward_index: u64
     ): Balance<T> {
-        assert!(object::id(incentive_manager) == farmer.incentive_manager_id, EIdMismatch);
-        assert!(incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), EIncentiveManagerNotUpdated);
-        assert!(farmer.last_update_time_ms == clock::timestamp_ms(clock), EFarmerNotUpdated);
+        assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
+        assert!(pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EPoolRewardManagerNotUpdated);
+        assert!(user_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EUserRewardManagerNotUpdated);
 
-        let incentive = option::borrow_mut(vector::borrow_mut(&mut incentive_manager.incentives, reward_index));
-        assert!(incentive.coin_type == type_name::get<T>(), EInvalidType);
+        let pool_reward = option::borrow_mut(vector::borrow_mut(&mut pool_reward_manager.pool_rewards, reward_index));
+        assert!(pool_reward.coin_type == type_name::get<T>(), EInvalidType);
 
-        let optional_reward = vector::borrow_mut(&mut farmer.rewards, reward_index);
+        let optional_reward = vector::borrow_mut(&mut user_reward_manager.rewards, reward_index);
         let reward = option::borrow_mut(optional_reward);
 
         let claimable_rewards = floor(reward.accumulated_rewards);
 
         reward.accumulated_rewards = sub(reward.accumulated_rewards, decimal::from(claimable_rewards));
         let reward_balance: &mut Balance<T> = bag::borrow_mut(
-            &mut incentive.additional_fields,
+            &mut pool_reward.additional_fields,
             RewardBalance<T> {}
         );
 
-        if (clock::timestamp_ms(clock) >= incentive.end_time_ms) {
-            let Reward { 
-                incentive_id: _, 
+        if (clock::timestamp_ms(clock) >= pool_reward.end_time_ms) {
+            let UserReward { 
+                pool_reward_id: _, 
                 accumulated_rewards: _, 
                 cumulative_rewards_per_share: _ 
             } = option::extract(optional_reward);
 
-            incentive.num_farmers = incentive.num_farmers - 1;
+            pool_reward.num_user_reward_managers = pool_reward.num_user_reward_managers - 1;
         };
 
         balance::split(reward_balance, claimable_rewards)
     }
 
     // === Private Functions ===
-    fun find_available_index(incentive_manager: &mut IncentiveManager): u64 {
+    fun find_available_index(pool_reward_manager: &mut PoolRewardManager): u64 {
         let i = 0;
-        while (i < vector::length(&incentive_manager.incentives)) {
-            let optional_incentive = vector::borrow(&incentive_manager.incentives, i);
-            if (option::is_none(optional_incentive)) {
+        while (i < vector::length(&pool_reward_manager.pool_rewards)) {
+            let optional_pool_reward = vector::borrow(&pool_reward_manager.pool_rewards, i);
+            if (option::is_none(optional_pool_reward)) {
                 return i
             };
 
             i = i + 1;
         };
 
-        vector::push_back(&mut incentive_manager.incentives, option::none());
+        vector::push_back(&mut pool_reward_manager.pool_rewards, option::none());
 
         i
     }
@@ -419,7 +423,7 @@ module suilend::liquidity_mining {
     struct SUI has drop {}
 
     #[test]
-    fun test_incentive_manager_basic() {
+    fun test_pool_reward_manager_basic() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -430,68 +434,68 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
-        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
-        // at this point, farmer 1 has earned 50 dollars
+        // at this point, user_reward_manager 1 has earned 50 dollars
         clock::set_for_testing(&mut clock, 5 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
 
-        let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_2, 400, &clock);
+        let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 400, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 5 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_2, &clock, 0);
             assert!(balance::value(&usdc) == 20 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
 
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 250, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_2, 250, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 250, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 250, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_2, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
 
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
-        sui::test_utils::destroy(farmer_1);
-        sui::test_utils::destroy(farmer_2);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
+        sui::test_utils::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
     #[test]
-    fun test_incentive_manager_multiple_rewards() {
+    fun test_pool_reward_manager_multiple_rewards() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -502,57 +506,57 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         let sui = balance::create_for_testing<SUI>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, sui, 10 * 1000, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, sui, 10 * 1000, 20 * 1000, &clock, ctx);
 
-        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_2, 100, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 100, &clock);
 
         clock::set_for_testing(&mut clock, 30 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 87_500_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
-            let sui = claim_rewards<SUI>(&mut incentive_manager, &mut farmer_1, &clock, 1);
+            let sui = claim_rewards<SUI>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 1);
             assert!(balance::value(&sui) == 75 * 1_000_000, 0);
             sui::test_utils::destroy(sui);
         };
 
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_2, &clock, 0);
             assert!(balance::value(&usdc) == 12_500_000, 0);
             sui::test_utils::destroy(usdc);
         };
         {
-            let sui = claim_rewards<SUI>(&mut incentive_manager, &mut farmer_2, &clock, 1);
+            let sui = claim_rewards<SUI>(&mut pool_reward_manager, &mut user_reward_manager_2, &clock, 1);
             assert!(balance::value(&sui) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(sui);
         };
 
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
-        sui::test_utils::destroy(farmer_1);
-        sui::test_utils::destroy(farmer_2);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
+        sui::test_utils::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
 
     }
 
     #[test]
-    fun test_incentive_manager_cancel_and_close() {
+    fun test_pool_reward_manager_cancel_and_close() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -563,39 +567,39 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
-        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
 
-        let unallocated_rewards = cancel_incentive<USDC>(&mut incentive_manager, 0, &clock);
+        let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
         assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
-        let farmer_rewards = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-        assert!(balance::value(&farmer_rewards) == 50 * 1_000_000, 0);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
+        let user_reward_manager_rewards = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
+        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
 
-        let dust_rewards = close_incentive<USDC>(&mut incentive_manager, 0, &clock);
+        let dust_rewards = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
         assert!(balance::value(&dust_rewards) == 0, 0);
 
         sui::test_utils::destroy(unallocated_rewards);
-        sui::test_utils::destroy(farmer_rewards);
+        sui::test_utils::destroy(user_reward_manager_rewards);
         sui::test_utils::destroy(dust_rewards);
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
-        sui::test_utils::destroy(farmer_1);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
         test_scenario::end(scenario);
     }
 
     #[test]
-    fun test_incentive_manager_zero_share() {
+    fun test_pool_reward_manager_zero_share() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -606,33 +610,33 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 1, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             // 50 usdc is unallocated since there was zero share from 0-10 seconds
             assert!(balance::value(&usdc) == 50 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
 
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
-        sui::test_utils::destroy(farmer_1);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
         test_scenario::end(scenario);
     }
 
     #[test]
-    fun test_incentive_manager_auto_farm() {
+    fun test_pool_reward_manager_auto_farm() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -643,44 +647,44 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
 
-        let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_1, 1, &clock);
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 1, &clock);
 
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_share(&mut incentive_manager, &mut farmer_2, 1, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_incentive_manager(&mut incentive_manager, &clock);
-        update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
+        update_pool_reward_manager(&mut pool_reward_manager, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 75 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
-        update_farmer(&mut incentive_manager, &mut farmer_2, &clock);
+        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
-            let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_2, &clock, 0);
+            let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_2, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
 
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
-        sui::test_utils::destroy(farmer_1);
-        sui::test_utils::destroy(farmer_2);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
+        sui::test_utils::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
     #[test]
-    #[expected_failure(abort_code = EMaxConcurrentIncentivesViolated)]
-    fun test_add_too_many_incentives() {
+    #[expected_failure(abort_code = EMaxConcurrentPoolRewardsViolated)]
+    fun test_add_too_many_pool_rewards() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -691,19 +695,19 @@ module suilend::liquidity_mining {
         let clock = clock::create_for_testing(ctx);
         clock::set_for_testing(&mut clock, 0); 
 
-        let incentive_manager = new_incentive_manager(ctx);
+        let pool_reward_manager = new_pool_reward_manager(ctx);
         let i = 0;
         while (i < MAX_REWARDS) {
             let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-            add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+            add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
             i = i + 1;
         };
 
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(incentive_manager);
+        sui::test_utils::destroy(pool_reward_manager);
         test_scenario::end(scenario);
     }
 }
