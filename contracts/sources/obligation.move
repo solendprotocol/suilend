@@ -271,7 +271,7 @@ module suilend::obligation {
         );
 
         let farmer = vector::borrow_mut(&mut obligation.farmers, deposit.farmer_index);
-        liquidity_mining::change_farmer_weight(
+        liquidity_mining::change_farmer_share(
             reserve::deposits_incentive_manager_mut(reserve),
             farmer,
             deposit.deposited_ctoken_amount,
@@ -310,7 +310,7 @@ module suilend::obligation {
         );
 
         let farmer = vector::borrow_mut(&mut obligation.farmers, borrow.farmer_index);
-        liquidity_mining::change_farmer_weight(
+        liquidity_mining::change_farmer_share(
             reserve::borrows_incentive_manager_mut(reserve),
             farmer,
             liability_shares(borrow),
@@ -393,7 +393,7 @@ module suilend::obligation {
             clock
         );
 
-        liquidity_mining::change_farmer_weight(
+        liquidity_mining::change_farmer_share(
             reserve::borrows_incentive_manager_mut(reserve),
             farmer,
             liability_shares(borrow),
@@ -609,7 +609,7 @@ module suilend::obligation {
         );
 
         let farmer = vector::borrow_mut(&mut obligation.farmers, deposit.farmer_index);
-        liquidity_mining::change_farmer_weight(
+        liquidity_mining::change_farmer_share(
             reserve::deposits_incentive_manager_mut(reserve),
             farmer,
             deposit.deposited_ctoken_amount,
@@ -1044,14 +1044,14 @@ module suilend::obligation {
         assert!(usdc_deposit.market_value == decimal::from(200), 2);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 200 * 1_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 200 * 1_000_000, 5);
 
         let sui_deposit = vector::borrow(&obligation.deposits, 1);
         assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000_000, 6);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000_000, 6);
 
         assert!(vector::length(&obligation.borrows) == 0, 0);
         assert!(obligation.deposited_value_usd == decimal::from(1200), 0);
@@ -1302,7 +1302,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000_000, 3);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000_000, 3);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -1312,7 +1312,7 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from(25), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 25 * 1_000_000 / 2, 4);
+        assert!(liquidity_mining::shares(farmer) == 25 * 1_000_000 / 2, 4);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
@@ -1417,7 +1417,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(800), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 80 * 1_000_000_000, 3);
+        assert!(liquidity_mining::shares(farmer) == 80 * 1_000_000_000, 3);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -1427,7 +1427,7 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from(20), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 20 * 1_000_000 / 2, 4);
+        assert!(liquidity_mining::shares(farmer) == 20 * 1_000_000 / 2, 4);
 
         assert!(obligation.deposited_value_usd == decimal::from(800), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(80), 1);
@@ -1492,7 +1492,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000_000, 5);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -1504,7 +1504,7 @@ module suilend::obligation {
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
         // 250_000 / 2.02 = 123762.376238
-        assert!(liquidity_mining::weight(farmer) == 123_762, 5);
+        assert!(liquidity_mining::shares(farmer) == 123_762, 5);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(100), 1);
@@ -1551,7 +1551,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000_000, 5);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -1563,7 +1563,7 @@ module suilend::obligation {
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
         // (101 * 1e6 - 500_000) / 2.02 == 49752475.2475
-        assert!(liquidity_mining::weight(farmer) == 49752475, 5);
+        assert!(liquidity_mining::shares(farmer) == 49752475, 5);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
@@ -1618,7 +1618,7 @@ module suilend::obligation {
             reserve::borrows_incentive_manager_mut(&mut usdc_reserve)
         );
         let farmer = vector::borrow(&obligation.farmers, farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 0, 0);
+        assert!(liquidity_mining::shares(farmer) == 0, 0);
 
         assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
@@ -1777,7 +1777,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000_000, 5);
         assert!(liquidity_mining::last_update_time_ms(farmer) == 1000, 6);
 
         let usdc_deposit = vector::borrow(&obligation.deposits, 1);
@@ -1785,7 +1785,7 @@ module suilend::obligation {
         assert!(usdc_deposit.market_value == decimal::from(100), 4);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000, 5);
         assert!(liquidity_mining::last_update_time_ms(farmer) == 1000, 6);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
@@ -1796,7 +1796,7 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from(101), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 100 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(farmer) == 100 * 1_000_000 / 2, 5);
         assert!(liquidity_mining::last_update_time_ms(farmer) == 1000, 6);
 
         assert!(obligation.deposited_value_usd == decimal::from(1100), 0);
@@ -1931,7 +1931,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(956), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 95 * 1_000_000_000 + 600_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 95 * 1_000_000_000 + 600_000_000, 5);
 
         assert!(vector::length(&obligation.borrows) == 2, 0);
 
@@ -1940,14 +1940,14 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from(10), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 10 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(farmer) == 10 * 1_000_000 / 2, 5);
 
         let usdt_borrow = vector::borrow(&obligation.borrows, 1);
         assert!(usdt_borrow.borrowed_amount == decimal::from(50 * 1_000_000), 1);
         assert!(usdt_borrow.market_value == decimal::from(50), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdt_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 50 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(farmer) == 50 * 1_000_000 / 2, 5);
 
         assert!(obligation.deposited_value_usd == decimal::from(956), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(0), 1);
@@ -2045,14 +2045,14 @@ module suilend::obligation {
             reserve::deposits_incentive_manager_mut(get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves))
         );
         let farmer = vector::borrow(&obligation.farmers, farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 0, 5);
+        assert!(liquidity_mining::shares(farmer) == 0, 5);
 
         let eth_deposit = vector::borrow(&obligation.deposits, 0);
         assert!(eth_deposit.deposited_ctoken_amount == 2 * 100_000_000, 3);
         assert!(eth_deposit.market_value == decimal::from(4000), 4);
 
         let farmer = vector::borrow(&obligation.farmers, eth_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 2 * 100_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 2 * 100_000_000, 5);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -2061,7 +2061,7 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from(90), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 90 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(farmer) == 90 * 1_000_000 / 2, 5);
 
         assert!(obligation.deposited_value_usd == decimal::from(4000), 4000);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(0), 0);
@@ -2140,7 +2140,7 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == add(decimal::from(998), decimal::from_percent(90)), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 99 * 1_000_000_000 + 890_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 99 * 1_000_000_000 + 890_000_000, 5);
 
         assert!(vector::length(&obligation.borrows) == 0, 0);
 
@@ -2149,7 +2149,7 @@ module suilend::obligation {
             reserve::borrows_incentive_manager_mut(get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves))
         );
         let farmer = vector::borrow(&obligation.farmers, farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 0, 5);
+        assert!(liquidity_mining::shares(farmer) == 0, 5);
 
         assert!(obligation.deposited_value_usd == add(decimal::from(998), decimal::from_percent(90)), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(0), 1);
@@ -2251,14 +2251,14 @@ module suilend::obligation {
         assert!(sui_deposit.market_value == decimal::from(100), 4);
 
         let farmer = vector::borrow(&obligation.farmers, sui_deposit.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 10_000_000_000, 5);
+        assert!(liquidity_mining::shares(farmer) == 10_000_000_000, 5);
 
         let farmer_index = find_farmer_index(
             &obligation, 
             reserve::deposits_incentive_manager_mut(get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves))
         );
         let farmer = vector::borrow(&obligation.farmers, farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 0, 5);
+        assert!(liquidity_mining::shares(farmer) == 0, 5);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -2267,7 +2267,7 @@ module suilend::obligation {
         assert!(usdc_borrow.market_value == decimal::from_percent_u64(950), 3);
 
         let farmer = vector::borrow(&obligation.farmers, usdc_borrow.farmer_index);
-        assert!(liquidity_mining::weight(farmer) == 9_500_000 / 2, 5);
+        assert!(liquidity_mining::shares(farmer) == 9_500_000 / 2, 5);
 
         assert!(obligation.deposited_value_usd == decimal::from(100), 4000);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(0), 0);

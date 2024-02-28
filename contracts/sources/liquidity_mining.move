@@ -32,7 +32,7 @@ module suilend::liquidity_mining {
     struct IncentiveManager has key, store {
         id: UID,
 
-        total_weight: u64,
+        total_shares: u64,
         incentives: vector<Option<Incentive>>,
 
         last_update_time_ms: u64,
@@ -51,7 +51,7 @@ module suilend::liquidity_mining {
         total_rewards: u64,
         allocated_rewards: Decimal,
 
-        cumulative_rewards_per_weight: Decimal,
+        cumulative_rewards_per_share: Decimal,
 
         num_farmers: u64,
 
@@ -63,7 +63,7 @@ module suilend::liquidity_mining {
 
     struct Farmer has store {
         incentive_manager_id: ID,
-        weight: u64,
+        share: u64,
 
         rewards: vector<Option<Reward>>,
         last_update_time_ms: u64,
@@ -73,7 +73,7 @@ module suilend::liquidity_mining {
         incentive_id: u64,
 
         accumulated_rewards: Decimal,
-        cumulative_rewards_per_weight: Decimal,
+        cumulative_rewards_per_share: Decimal,
     }
 
     // === Public-View Functions ===
@@ -81,8 +81,8 @@ module suilend::liquidity_mining {
         farmer.incentive_manager_id
     }
 
-    public fun weight(farmer: &Farmer): u64 {
-        farmer.weight
+    public fun shares(farmer: &Farmer): u64 {
+        farmer.share
     }
 
     public fun last_update_time_ms(farmer: &Farmer): u64 {
@@ -93,16 +93,8 @@ module suilend::liquidity_mining {
     public fun new_incentive_manager(ctx: &mut TxContext): IncentiveManager {
         IncentiveManager {
             id: object::new(ctx),
-            total_weight: 0,
-            incentives: {
-                let v = vector::empty();
-                let i = 0;
-                while (i < MAX_REWARDS) {
-                    vector::push_back(&mut v, option::none());
-                    i = i + 1;
-                };
-                v
-            },
+            total_shares: 0,
+            incentives: vector::empty(),
             last_update_time_ms: 0,
             num_incentives: 0,
         }
@@ -127,7 +119,7 @@ module suilend::liquidity_mining {
             end_time_ms,
             total_rewards: balance::value(&rewards),
             allocated_rewards: decimal::from(0),
-            cumulative_rewards_per_weight: decimal::from(0),
+            cumulative_rewards_per_share: decimal::from(0),
             num_farmers: 0,
             additional_fields: {
                 let bag = bag::new(ctx);
@@ -162,7 +154,7 @@ module suilend::liquidity_mining {
             end_time_ms, 
             total_rewards: _, 
             allocated_rewards: _,
-            cumulative_rewards_per_weight: _, 
+            cumulative_rewards_per_share: _, 
             num_farmers, 
             additional_fields,
         } = option::extract(optional_incentive);
@@ -194,12 +186,13 @@ module suilend::liquidity_mining {
         let incentive = option::borrow_mut(vector::borrow_mut(&mut incentive_manager.incentives, index));
         let cur_time_ms = clock::timestamp_ms(clock);
 
-        incentive.end_time_ms = cur_time_ms;
-
         let unallocated_rewards = floor(sub(
             decimal::from(incentive.total_rewards),
             incentive.allocated_rewards
         ));
+
+        incentive.end_time_ms = cur_time_ms;
+        incentive.total_rewards = 0;
 
         let reward_balance: &mut Balance<T> = bag::borrow_mut(
             &mut incentive.additional_fields,
@@ -212,7 +205,11 @@ module suilend::liquidity_mining {
     public fun update_incentive_manager(incentive_manager: &mut IncentiveManager, clock: &Clock) {
         let cur_time_ms = clock::timestamp_ms(clock);
 
-        if (incentive_manager.total_weight == 0) {
+        if (cur_time_ms == incentive_manager.last_update_time_ms) {
+            return
+        };
+
+        if (incentive_manager.total_shares == 0) {
             incentive_manager.last_update_time_ms = cur_time_ms;
             return
         };
@@ -244,11 +241,11 @@ module suilend::liquidity_mining {
             );
             incentive.allocated_rewards = add(incentive.allocated_rewards, unlocked_rewards);
 
-            incentive.cumulative_rewards_per_weight = add(
-                incentive.cumulative_rewards_per_weight,
+            incentive.cumulative_rewards_per_share = add(
+                incentive.cumulative_rewards_per_share,
                 div(
                     unlocked_rewards,
-                    decimal::from(incentive_manager.total_weight)
+                    decimal::from(incentive_manager.total_shares)
                 )
             );
 
@@ -274,10 +271,13 @@ module suilend::liquidity_mining {
 
             let incentive = option::borrow_mut(optional_incentive);
 
+            if (vector::length(&farmer.rewards) == i) {
+                vector::push_back(&mut farmer.rewards, option::none());
+            };
+
             let optional_reward = vector::borrow_mut(&mut farmer.rewards, i);
             if (option::is_none(optional_reward)) {
-                if (cur_time_ms < incentive.end_time_ms || 
-                    farmer.last_update_time_ms <= incentive.start_time_ms) {
+                if (farmer.last_update_time_ms <= incentive.end_time_ms) {
                     option::fill(
                         optional_reward, 
                         Reward {
@@ -285,15 +285,15 @@ module suilend::liquidity_mining {
                             accumulated_rewards: {
                                 if (farmer.last_update_time_ms <= incentive.start_time_ms) {
                                     mul(
-                                        incentive.cumulative_rewards_per_weight,
-                                        decimal::from(farmer.weight)
+                                        incentive.cumulative_rewards_per_share,
+                                        decimal::from(farmer.share)
                                     )
                                 }
                                 else {
                                     decimal::from(0)
                                 }
                             },
-                            cumulative_rewards_per_weight: incentive.cumulative_rewards_per_weight
+                            cumulative_rewards_per_share: incentive.cumulative_rewards_per_share
                         }
                     );
 
@@ -304,14 +304,14 @@ module suilend::liquidity_mining {
                 let reward = option::borrow_mut(optional_reward);
                 let new_rewards = mul(
                     sub(
-                        incentive.cumulative_rewards_per_weight,
-                        reward.cumulative_rewards_per_weight
+                        incentive.cumulative_rewards_per_share,
+                        reward.cumulative_rewards_per_share
                     ),
-                    decimal::from(farmer.weight),
+                    decimal::from(farmer.share),
                 );
 
                 reward.accumulated_rewards = add(reward.accumulated_rewards, new_rewards);
-                reward.cumulative_rewards_per_weight = incentive.cumulative_rewards_per_weight;
+                reward.cumulative_rewards_per_share = incentive.cumulative_rewards_per_share;
             };
 
             i = i + 1;
@@ -321,26 +321,20 @@ module suilend::liquidity_mining {
     }
 
     // === Public-Friend functions
-    /// Create a new farmer object with zero weight.
+    /// Create a new farmer object with zero share.
     public(friend) fun new_farmer(
         incentive_manager: &mut IncentiveManager,
         clock: &Clock,
     ): Farmer {
-        assert!(incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), EIncentiveManagerNotUpdated);
+        assert!(
+            incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), 
+            EIncentiveManagerNotUpdated
+        );
 
         let farmer = Farmer {
             incentive_manager_id: object::id(incentive_manager),
-            weight: 0,
-            rewards: {
-                let v = vector::empty();
-                let i = 0;
-                while (i < MAX_REWARDS) {
-                    vector::push_back(&mut v, option::none());
-                    i = i + 1;
-                };
-
-                v
-            },
+            share: 0,
+            rewards: vector::empty(),
             last_update_time_ms: clock::timestamp_ms(clock),
         };
 
@@ -350,18 +344,18 @@ module suilend::liquidity_mining {
         farmer
     }
 
-    public(friend) fun change_farmer_weight(
+    public(friend) fun change_farmer_share(
         incentive_manager: &mut IncentiveManager, 
         farmer: &mut Farmer, 
-        new_weight: u64, 
+        new_share: u64, 
         clock: &Clock
     ) {
         assert!(object::id(incentive_manager) == farmer.incentive_manager_id, EIdMismatch);
         assert!(incentive_manager.last_update_time_ms == clock::timestamp_ms(clock), EIncentiveManagerNotUpdated);
         assert!(farmer.last_update_time_ms == clock::timestamp_ms(clock), EFarmerNotUpdated);
 
-        incentive_manager.total_weight = incentive_manager.total_weight - farmer.weight + new_weight;
-        farmer.weight = new_weight;
+        incentive_manager.total_shares = incentive_manager.total_shares - farmer.share + new_share;
+        farmer.share = new_share;
     }
 
     public(friend) fun claim_rewards<T>(
@@ -392,7 +386,7 @@ module suilend::liquidity_mining {
             let Reward { 
                 incentive_id: _, 
                 accumulated_rewards: _, 
-                cumulative_rewards_per_weight: _ 
+                cumulative_rewards_per_share: _ 
             } = option::extract(optional_reward);
 
             incentive.num_farmers = incentive.num_farmers - 1;
@@ -402,7 +396,7 @@ module suilend::liquidity_mining {
     }
 
     // === Private Functions ===
-    fun find_available_index(incentive_manager: &IncentiveManager): u64 {
+    fun find_available_index(incentive_manager: &mut IncentiveManager): u64 {
         let i = 0;
         while (i < vector::length(&incentive_manager.incentives)) {
             let optional_incentive = vector::borrow(&incentive_manager.incentives, i);
@@ -412,6 +406,8 @@ module suilend::liquidity_mining {
 
             i = i + 1;
         };
+
+        vector::push_back(&mut incentive_manager.incentives, option::none());
 
         i
     }
@@ -439,7 +435,7 @@ module suilend::liquidity_mining {
         add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
 
         // at this point, farmer 1 has earned 50 dollars
         clock::set_for_testing(&mut clock, 5 * 1000);
@@ -452,7 +448,7 @@ module suilend::liquidity_mining {
         };
 
         let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_2, 400, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_2, 400, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
@@ -469,8 +465,8 @@ module suilend::liquidity_mining {
             sui::test_utils::destroy(usdc);
         };
 
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 250, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_2, 250, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 250, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_2, 250, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
@@ -514,12 +510,12 @@ module suilend::liquidity_mining {
         add_incentive(&mut incentive_manager, sui, 10 * 1000, 20 * 1000, &clock, ctx);
 
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
         let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_2, 100, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_2, 100, &clock);
 
         clock::set_for_testing(&mut clock, 30 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
@@ -572,7 +568,7 @@ module suilend::liquidity_mining {
         add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 100, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
@@ -599,7 +595,7 @@ module suilend::liquidity_mining {
     }
 
     #[test]
-    fun test_incentive_manager_zero_weight() {
+    fun test_incentive_manager_zero_share() {
         use sui::test_scenario::{Self};
         use sui::balance::{Self};
 
@@ -617,14 +613,14 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 10 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 1, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
         update_farmer(&mut incentive_manager, &mut farmer_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut incentive_manager, &mut farmer_1, &clock, 0);
-            // 50 usdc is unallocated since there was zero weight from 0-10 seconds
+            // 50 usdc is unallocated since there was zero share from 0-10 seconds
             assert!(balance::value(&usdc) == 50 * 1_000_000, 0);
             sui::test_utils::destroy(usdc);
         };
@@ -650,7 +646,7 @@ module suilend::liquidity_mining {
         let incentive_manager = new_incentive_manager(ctx);
 
         let farmer_1 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_1, 1, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_1, 1, &clock);
 
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
         add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
@@ -658,7 +654,7 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 10 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
         let farmer_2 = new_farmer(&mut incentive_manager, &clock);
-        change_farmer_weight(&mut incentive_manager, &mut farmer_2, 1, &clock);
+        change_farmer_share(&mut incentive_manager, &mut farmer_2, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
         update_incentive_manager(&mut incentive_manager, &clock);
@@ -679,6 +675,35 @@ module suilend::liquidity_mining {
         sui::test_utils::destroy(incentive_manager);
         sui::test_utils::destroy(farmer_1);
         sui::test_utils::destroy(farmer_2);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EMaxConcurrentIncentivesViolated)]
+    fun test_add_too_many_incentives() {
+        use sui::test_scenario::{Self};
+        use sui::balance::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let clock = clock::create_for_testing(ctx);
+        clock::set_for_testing(&mut clock, 0); 
+
+        let incentive_manager = new_incentive_manager(ctx);
+        let i = 0;
+        while (i < MAX_REWARDS) {
+            let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+            add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+            i = i + 1;
+        };
+
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_incentive(&mut incentive_manager, usdc, 0, 20 * 1000, &clock, ctx);
+
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(incentive_manager);
         test_scenario::end(scenario);
     }
 }
