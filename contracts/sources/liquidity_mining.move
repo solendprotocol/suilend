@@ -49,6 +49,7 @@ module suilend::liquidity_mining {
         end_time_ms: u64,
 
         total_rewards: u64,
+        /// amount of rewards that have been earned by users
         allocated_rewards: Decimal,
 
         cumulative_rewards_per_share: Decimal,
@@ -72,7 +73,7 @@ module suilend::liquidity_mining {
     struct UserReward has store {
         pool_reward_id: u64,
 
-        accumulated_rewards: Decimal,
+        earned_rewards: Decimal,
         cumulative_rewards_per_share: Decimal,
     }
 
@@ -286,7 +287,7 @@ module suilend::liquidity_mining {
                         optional_reward, 
                         UserReward {
                             pool_reward_id: pool_reward.pool_reward_id,
-                            accumulated_rewards: {
+                            earned_rewards: {
                                 if (user_reward_manager.last_update_time_ms <= pool_reward.start_time_ms) {
                                     mul(
                                         pool_reward.cumulative_rewards_per_share,
@@ -314,7 +315,7 @@ module suilend::liquidity_mining {
                     decimal::from(user_reward_manager.share),
                 );
 
-                reward.accumulated_rewards = add(reward.accumulated_rewards, new_rewards);
+                reward.earned_rewards = add(reward.earned_rewards, new_rewards);
                 reward.cumulative_rewards_per_share = pool_reward.cumulative_rewards_per_share;
             };
 
@@ -378,9 +379,9 @@ module suilend::liquidity_mining {
         let optional_reward = vector::borrow_mut(&mut user_reward_manager.rewards, reward_index);
         let reward = option::borrow_mut(optional_reward);
 
-        let claimable_rewards = floor(reward.accumulated_rewards);
+        let claimable_rewards = floor(reward.earned_rewards);
 
-        reward.accumulated_rewards = sub(reward.accumulated_rewards, decimal::from(claimable_rewards));
+        reward.earned_rewards = sub(reward.earned_rewards, decimal::from(claimable_rewards));
         let reward_balance: &mut Balance<T> = bag::borrow_mut(
             &mut pool_reward.additional_fields,
             RewardBalance<T> {}
@@ -389,7 +390,7 @@ module suilend::liquidity_mining {
         if (clock::timestamp_ms(clock) >= pool_reward.end_time_ms) {
             let UserReward { 
                 pool_reward_id: _, 
-                accumulated_rewards: _, 
+                earned_rewards: _, 
                 cumulative_rewards_per_share: _ 
             } = option::extract(optional_reward);
 

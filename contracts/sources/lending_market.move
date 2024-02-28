@@ -273,34 +273,18 @@ module suilend::lending_market {
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
         deposit: Coin<CToken<P, T>>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        assert!(coin::value(&deposit) > 0, ETooSmall);
-
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-
-        let obligation = object_table::borrow_mut(
-            &mut lending_market.obligations, 
-            obligation_owner_cap.obligation_id
-        );
-
-        event::emit(DepositEvent {
-            lending_market: type_name::get<P>(),
-            coin_type: type_name::get<T>(),
-            ctoken_amount: coin::value(&deposit),
-            obligation_id: obligation_owner_cap.obligation_id,
-        });
-
-        obligation::deposit<P>(
-            obligation, 
-            reserve,
-            clock,
-            coin::value(&deposit)
-        );
-        reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
+        deposit_ctokens_into_obligation_by_id(
+            lending_market, 
+            reserve_array_index, 
+            obligation_owner_cap.obligation_id, 
+            clock, 
+            deposit, 
+            ctx
+        )
     }
+
 
     /// Borrow tokens of type T. A fee is charged.
     public fun borrow<P, T>(
@@ -482,29 +466,58 @@ module suilend::lending_market {
         is_deposit_reward: bool,
         ctx: &mut TxContext
     ): Coin<RewardType> {
-        let obligation = object_table::borrow_mut(
-            &mut lending_market.obligations, 
-            cap.obligation_id
-        );
-
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_id);
-        reserve::compound_interest(reserve, clock);
-
-        let pool_reward_manager = if (is_deposit_reward) {
-            reserve::deposits_pool_reward_manager_mut(reserve)
-        } else {
-            reserve::borrows_pool_reward_manager_mut(reserve)
-        };
-
-        coin::from_balance(
-            obligation::claim_rewards<P, RewardType>(
-                obligation, 
-                pool_reward_manager,
-                clock,
-                reward_index
-            ),
+        claim_rewards_by_obligation_id(
+            lending_market, 
+            cap.obligation_id, 
+            clock, 
+            reserve_id, 
+            reward_index, 
+            is_deposit_reward, 
             ctx
         )
+    }
+
+    /// Permissionless function. Anyone can call this function to claim the rewards 
+    /// and deposit into the same obligation. This is useful to "crank" rewards for users
+    /// so their rewards are automatically lent out to earn interest.
+    public fun claim_rewards_and_deposit<P, RewardType>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        clock: &Clock,
+        // array index of reserve that is giving out the rewards
+        reward_reserve_id: u64,
+        reward_index: u64,
+        is_deposit_reward: bool,
+        // array index of reserve with type RewardType
+        deposit_reserve_id: u64,
+        ctx: &mut TxContext
+    ) {
+        let rewards = claim_rewards_by_obligation_id<P, RewardType>(
+            lending_market, 
+            obligation_id, 
+            clock, 
+            reward_reserve_id, 
+            reward_index, 
+            is_deposit_reward, 
+            ctx
+        );
+
+        let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
+            lending_market, 
+            deposit_reserve_id, 
+            clock, 
+            rewards, 
+            ctx
+        );
+
+        deposit_ctokens_into_obligation_by_id<P, RewardType>(
+            lending_market, 
+            deposit_reserve_id, 
+            obligation_id, 
+            clock, 
+            ctokens, 
+            ctx
+        );
     }
 
 
@@ -611,6 +624,75 @@ module suilend::lending_market {
     }
 
     // === Private Functions ===
+    fun deposit_ctokens_into_obligation_by_id<P, T>(
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        obligation_id: ID,
+        clock: &Clock,
+        deposit: Coin<CToken<P, T>>,
+        _ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(coin::value(&deposit) > 0, ETooSmall);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_id
+        );
+
+        event::emit(DepositEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: type_name::get<T>(),
+            ctoken_amount: coin::value(&deposit),
+            obligation_id,
+        });
+
+        obligation::deposit<P>(
+            obligation, 
+            reserve,
+            clock,
+            coin::value(&deposit)
+        );
+        reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
+    }
+
+    fun claim_rewards_by_obligation_id<P, RewardType>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        clock: &Clock,
+        reserve_id: u64,
+        reward_index: u64,
+        is_deposit_reward: bool,
+        ctx: &mut TxContext
+    ): Coin<RewardType> {
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_id
+        );
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_id);
+        reserve::compound_interest(reserve, clock);
+
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve::deposits_pool_reward_manager_mut(reserve)
+        } else {
+            reserve::borrows_pool_reward_manager_mut(reserve)
+        };
+
+        coin::from_balance(
+            obligation::claim_rewards<P, RewardType>(
+                obligation, 
+                pool_reward_manager,
+                clock,
+                reward_index
+            ),
+            ctx
+        )
+    }
+
     // === Test Functions ===
     #[test_only]
     public fun destroy_for_testing<P>(obligation_owner_cap: ObligationOwnerCap<P>) {
@@ -1560,21 +1642,24 @@ module suilend::lending_market {
         );
         assert!(coin::value(&claimed_usdc) == 80 * 1_000_000, 0);
 
-        let claimed_sui = claim_rewards<LENDING_MARKET, TEST_SUI>(
+        claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
-            &obligation_owner_cap,
+            obligation_owner_cap.obligation_id,
             &clock,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             1,
             true,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
             test_scenario::ctx(&mut scenario)
         );
-        assert!(coin::value(&claimed_sui) == 50 * 1_000_000_000, 0);
+
+        assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
+            obligation(&lending_market, obligation_id(&obligation_owner_cap))
+        ) == 50 * 1_000_000_000, 0);
 
         test_utils::destroy(owner_cap);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(claimed_usdc);
-        test_utils::destroy(claimed_sui);
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);
         test_utils::destroy(prices);
