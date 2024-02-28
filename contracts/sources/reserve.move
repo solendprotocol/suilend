@@ -29,6 +29,7 @@ module suilend::reserve {
         spread_fee,
         liquidation_bonus
     };
+    use suilend::liquidity_mining::{Self, PoolRewardManager};
 
     #[test_only]
     use sui::test_scenario::{Self};
@@ -81,7 +82,10 @@ module suilend::reserve {
         unclaimed_spread_fees: Decimal,
 
         /// unused
-        attributed_borrow_value: Decimal
+        attributed_borrow_value: Decimal,
+
+        deposits_pool_reward_manager: PoolRewardManager,
+        borrows_pool_reward_manager: PoolRewardManager,
     }
 
     /// Interest bearing token on the underlying Coin<T>. The ctoken can be redeemed for 
@@ -140,7 +144,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx)
         };
 
         dynamic_field::add(
@@ -159,6 +165,14 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+    public fun borrows_pool_reward_manager<P>(reserve: &Reserve<P>): &PoolRewardManager {
+        &reserve.borrows_pool_reward_manager
+    }
+
+    public fun deposits_pool_reward_manager<P>(reserve: &Reserve<P>): &PoolRewardManager {
+        &reserve.deposits_pool_reward_manager
+    }
+
     public fun array_index<P>(reserve: &Reserve<P>): u64 {
         reserve.array_index
     }
@@ -333,7 +347,17 @@ module suilend::reserve {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
     }
 
-    public fun deduct_liquidation_fee<P, T>(
+    // === Public-Mutative Functions
+    public fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+        &mut reserve.deposits_pool_reward_manager
+    }
+
+    public fun borrows_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+        &mut reserve.borrows_pool_reward_manager
+    }
+
+    // === Public-Friend Functions
+    public(friend) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
     ) {
@@ -350,7 +374,6 @@ module suilend::reserve {
         balance::join(&mut balances.ctoken_fees, balance::split(ctokens, fee_amount));
     }
 
-    // === Public-Friend Functions
     public(friend) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
@@ -373,8 +396,13 @@ module suilend::reserve {
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
-    /// Compound interest and debt. Interest is compounded every second.
+    /// Compound interest, debt, and rewards. Interest is compounded every second.
     public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
+        // rewards
+        liquidity_mining::update_pool_reward_manager(&mut reserve.deposits_pool_reward_manager, clock);
+        liquidity_mining::update_pool_reward_manager(&mut reserve.borrows_pool_reward_manager, clock);
+
+        // interest, debt
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
         if (time_elapsed_s == 0) {
@@ -529,8 +557,6 @@ module suilend::reserve {
         );
 
         let borrowed_amount = reserve.borrowed_amount;
-        std::debug::print(&borrowed_amount);
-        std::debug::print(&market_value_upper_bound(reserve, borrowed_amount));
         assert!(
             le(
                 market_value_upper_bound(reserve, borrowed_amount), 
@@ -582,7 +608,6 @@ module suilend::reserve {
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::split(&mut balances.deposited_ctokens, amount)
     }
-
 
     // === Test Functions ===
     #[test_only]
@@ -636,7 +661,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario)),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario))
         };
 
         assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
@@ -694,7 +721,9 @@ module suilend::reserve {
             cumulative_borrow_rate: decimal::from(1),
             interest_last_update_timestamp_s: 0,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario)),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario))
         };
 
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
@@ -882,7 +911,6 @@ module suilend::reserve {
         let ctokens = balance::create_for_testing(10);
         let tokens = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
 
-        std::debug::print(&tokens);
         assert!(balance::value(&tokens) == 50, 0);
         assert!(reserve.available_amount == available_amount_old - 50, 0);
         assert!(reserve.ctoken_supply == ctoken_supply_old - 10, 0);
@@ -1239,7 +1267,9 @@ module suilend::reserve {
             cumulative_borrow_rate,
             interest_last_update_timestamp_s,
             unclaimed_spread_fees: decimal::from(0),
-            attributed_borrow_value: decimal::from(0)
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx)
         };
 
         dynamic_field::add(
