@@ -80,6 +80,7 @@ module suilend::lending_market {
     struct MintEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
         liquidity_amount: u64,
         ctoken_amount: u64,
     }
@@ -87,6 +88,7 @@ module suilend::lending_market {
     struct RedeemEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
         ctoken_amount: u64,
         liquidity_amount: u64,
     }
@@ -94,38 +96,43 @@ module suilend::lending_market {
     struct DepositEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
+        obligation_id: address,
         ctoken_amount: u64,
-        obligation_id: ID,
     }
 
     struct WithdrawEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
+        obligation_id: address,
         ctoken_amount: u64,
-        obligation_id: ID,
     }
 
     struct BorrowEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
+        obligation_id: address,
         liquidity_amount: u64,
-        obligation_id: ID,
+        origination_fee_amount: u64,
     }
 
     struct RepayEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
+        obligation_id: address,
         liquidity_amount: u64,
-        obligation_id: ID,
     }
 
     struct LiquidateEvent has drop, copy {
         lending_market: TypeName,
-        repay_coin_type: TypeName,
+        repay_reserve_id: address,
+        withdraw_reserve_id: address,
+        obligation_id: address,
         repay_amount: u64,
-        withdraw_coin_type: TypeName,
         withdraw_amount: u64,
-        obligation_id: ID,
     }
 
     // === Public-Mutative Functions ===
@@ -208,6 +215,7 @@ module suilend::lending_market {
         event::emit(MintEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
             liquidity_amount: deposit_amount,
             ctoken_amount: balance::value(&ctokens),
         });
@@ -259,6 +267,7 @@ module suilend::lending_market {
         event::emit(RedeemEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
             ctoken_amount,
             liquidity_amount: balance::value(&liquidity),
         });
@@ -311,6 +320,7 @@ module suilend::lending_market {
         reserve::assert_price_is_fresh(reserve, clock);
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
+        let origination_fee_amount = borrow_amount_with_fees - value(receive_balance); 
         obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
 
         let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
@@ -323,8 +333,10 @@ module suilend::lending_market {
         event::emit(BorrowEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            obligation_id: object::id_address(obligation),
             liquidity_amount: borrow_amount_with_fees,
-            obligation_id: obligation_owner_cap.obligation_id,
+            origination_fee_amount,
         });
 
         coin::from_balance(receive_balance, ctx)
@@ -355,8 +367,9 @@ module suilend::lending_market {
         event::emit(WithdrawEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            obligation_id: object::id_address(obligation),
             ctoken_amount: amount,
-            obligation_id: obligation_owner_cap.obligation_id,
         });
 
         let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
@@ -403,14 +416,17 @@ module suilend::lending_market {
         assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
         reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
+        
+        let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
+        let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
 
         event::emit(LiquidateEvent {
             lending_market: type_name::get<P>(),
-            repay_coin_type: type_name::get<Repay>(),
+            repay_reserve_id: object::id_address(repay_reserve),
+            withdraw_reserve_id: object::id_address(withdraw_reserve),
+            obligation_id: object::id_address(obligation),
             repay_amount: required_repay_amount,
-            withdraw_coin_type: type_name::get<Withdraw>(),
             withdraw_amount: withdraw_ctoken_amount,
-            obligation_id,
         });
 
         let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
@@ -451,8 +467,9 @@ module suilend::lending_market {
         event::emit(RepayEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            obligation_id: object::id_address(obligation),
             liquidity_amount: final_repay_amount,
-            obligation_id,
         });
 
     }
@@ -646,8 +663,9 @@ module suilend::lending_market {
         event::emit(DepositEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
-            ctoken_amount: coin::value(&deposit),
+            reserve_id: object::id_address(reserve),
             obligation_id,
+            ctoken_amount: coin::value(&deposit),
         });
 
         obligation::deposit<P>(
