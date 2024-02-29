@@ -133,6 +133,8 @@ module suilend::lending_market {
         obligation_id: address,
         repay_amount: u64,
         withdraw_amount: u64,
+        protocol_fee_amount: u64,
+        liquidator_bonus_amount: u64,
     }
 
     // === Public-Mutative Functions ===
@@ -320,7 +322,7 @@ module suilend::lending_market {
         reserve::assert_price_is_fresh(reserve, clock);
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
-        let origination_fee_amount = borrow_amount_with_fees - value(receive_balance); 
+        let origination_fee_amount = borrow_amount_with_fees - balance::value(&receive_balance); 
         obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
 
         let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
@@ -415,7 +417,7 @@ module suilend::lending_market {
         let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
         assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
-        reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
+        let (protocol_fee_amount, liquidator_bonus_amount) = reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
         
         let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
         let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
@@ -427,6 +429,8 @@ module suilend::lending_market {
             obligation_id: object::id_address(obligation),
             repay_amount: required_repay_amount,
             withdraw_amount: withdraw_ctoken_amount,
+            protocol_fee_amount,
+            liquidator_bonus_amount
         });
 
         let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
@@ -664,7 +668,7 @@ module suilend::lending_market {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
-            obligation_id,
+            obligation_id: object::id_address(obligation),
             ctoken_amount: coin::value(&deposit),
         });
 

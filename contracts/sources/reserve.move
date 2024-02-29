@@ -388,21 +388,30 @@ module suilend::reserve {
     }
 
     // === Public-Friend Functions
+
+    // deducts the fees during liquidation, returns (protocol_fee_amount, liquidator_bonus_amount)
     public(friend) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
-    ) {
+    ): (u64, u64) {
         let bonus = liquidation_bonus(config(reserve));
         let protocol_liquidation_fee = protocol_liquidation_fee(config(reserve));
         let take_rate = div(
             protocol_liquidation_fee,
             add(add(decimal::from(1), bonus), protocol_liquidation_fee)
         );
-
-        let fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
+        let protocol_fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
 
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, fee_amount));
+        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, protocol_fee_amount));
+
+        let bonus_rate = div(
+            bonus,
+            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
+        );
+        let liquidator_bonus_amount = ceil(mul(bonus_rate, decimal::from(balance::value(ctokens))));
+
+        (protocol_fee_amount, liquidator_bonus_amount)
     }
 
     public(friend) fun update_reserve_config<P>(
