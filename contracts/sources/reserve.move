@@ -396,13 +396,8 @@ module suilend::reserve {
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
-    /// Compound interest, debt, and rewards. Interest is compounded every second.
+    /// Compound interest, debt. Interest is compounded every second.
     public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
-        // rewards
-        liquidity_mining::update_pool_reward_manager(&mut reserve.deposits_pool_reward_manager, clock);
-        liquidity_mining::update_pool_reward_manager(&mut reserve.borrows_pool_reward_manager, clock);
-
-        // interest, debt
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
         if (time_elapsed_s == 0) {

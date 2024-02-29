@@ -18,8 +18,6 @@ module suilend::liquidity_mining {
     const EMaxConcurrentPoolRewardsViolated: u64 = 3;
     const ENotAllRewardsClaimed: u64 = 4;
     const EPoolRewardPeriodNotOver: u64 = 5;
-    const EPoolRewardManagerNotUpdated: u64 = 6;
-    const EUserRewardManagerNotUpdated: u64 = 7;
 
     // === Constants ===
     const MAX_REWARDS: u64 = 5;
@@ -201,7 +199,7 @@ module suilend::liquidity_mining {
         balance::split(reward_balance, unallocated_rewards)
     }
 
-    public fun update_pool_reward_manager(pool_reward_manager: &mut PoolRewardManager, clock: &Clock) {
+    fun update_pool_reward_manager(pool_reward_manager: &mut PoolRewardManager, clock: &Clock) {
         let cur_time_ms = clock::timestamp_ms(clock);
 
         if (cur_time_ms == pool_reward_manager.last_update_time_ms) {
@@ -254,15 +252,15 @@ module suilend::liquidity_mining {
         pool_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
-    public fun update_user_reward_manager(
+    fun update_user_reward_manager(
         pool_reward_manager: &mut PoolRewardManager, 
         user_reward_manager: &mut UserRewardManager, 
         clock: &Clock
     ) {
         assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
+        update_pool_reward_manager(pool_reward_manager, clock);
 
         let cur_time_ms = clock::timestamp_ms(clock);
-        assert!(pool_reward_manager.last_update_time_ms == cur_time_ms, EPoolRewardManagerNotUpdated);
 
         let i = 0;
         while (i < vector::length(&pool_reward_manager.pool_rewards)) {
@@ -329,10 +327,7 @@ module suilend::liquidity_mining {
         pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock,
     ): UserRewardManager {
-        assert!(
-            pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), 
-            EPoolRewardManagerNotUpdated
-        );
+        update_pool_reward_manager(pool_reward_manager, clock);
 
         let user_reward_manager = UserRewardManager {
             pool_reward_manager_id: object::id(pool_reward_manager),
@@ -353,9 +348,7 @@ module suilend::liquidity_mining {
         new_share: u64, 
         clock: &Clock
     ) {
-        assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
-        assert!(pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EPoolRewardManagerNotUpdated);
-        assert!(user_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EUserRewardManagerNotUpdated);
+        update_user_reward_manager(pool_reward_manager, user_reward_manager, clock);
 
         pool_reward_manager.total_shares = pool_reward_manager.total_shares - user_reward_manager.share + new_share;
         user_reward_manager.share = new_share;
@@ -367,9 +360,7 @@ module suilend::liquidity_mining {
         clock: &Clock, 
         reward_index: u64
     ): Balance<T> {
-        assert!(object::id(pool_reward_manager) == user_reward_manager.pool_reward_manager_id, EIdMismatch);
-        assert!(pool_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EPoolRewardManagerNotUpdated);
-        assert!(user_reward_manager.last_update_time_ms == clock::timestamp_ms(clock), EUserRewardManagerNotUpdated);
+        update_user_reward_manager(pool_reward_manager, user_reward_manager, clock);
 
         let pool_reward = option::borrow_mut(vector::borrow_mut(&mut pool_reward_manager.pool_rewards, reward_index));
         assert!(pool_reward.coin_type == type_name::get<T>(), EInvalidType);
@@ -442,8 +433,6 @@ module suilend::liquidity_mining {
 
         // at this point, user_reward_manager 1 has earned 50 dollars
         clock::set_for_testing(&mut clock, 5 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
@@ -454,9 +443,6 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 400, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 5 * 1_000_000, 0);
@@ -472,9 +458,6 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 250, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
@@ -516,14 +499,10 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
         let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 100, &clock);
 
         clock::set_for_testing(&mut clock, 30 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_2, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 87_500_000, 0);
@@ -574,14 +553,11 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
 
         let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
         assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
 
         clock::set_for_testing(&mut clock, 15 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         let user_reward_manager_rewards = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
         assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
 
@@ -614,13 +590,10 @@ module suilend::liquidity_mining {
         add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
         let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             // 50 usdc is unallocated since there was zero share from 0-10 seconds
@@ -655,13 +628,10 @@ module suilend::liquidity_mining {
         add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
 
         clock::set_for_testing(&mut clock, 10 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
         let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 1, &clock);
 
         clock::set_for_testing(&mut clock, 20 * 1000);
-        update_pool_reward_manager(&mut pool_reward_manager, &clock);
-        update_user_reward_manager(&mut pool_reward_manager, &mut user_reward_manager_1, &clock);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 75 * 1_000_000, 0);

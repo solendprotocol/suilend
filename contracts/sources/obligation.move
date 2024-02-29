@@ -137,13 +137,6 @@ module suilend::obligation {
             reserve::compound_interest(deposit_reserve, clock);
             reserve::assert_price_is_fresh(deposit_reserve, clock);
 
-            let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, deposit.user_reward_manager_index);
-            liquidity_mining::update_user_reward_manager(
-                reserve::deposits_pool_reward_manager_mut(deposit_reserve),
-                user_reward_manager,
-                clock
-            );
-
             let market_value = reserve::ctoken_market_value(
                 deposit_reserve,
                 deposit.deposited_ctoken_amount
@@ -191,13 +184,6 @@ module suilend::obligation {
             reserve::assert_price_is_fresh(borrow_reserve, clock);
 
             compound_debt(borrow, borrow_reserve);
-
-            let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, borrow.user_reward_manager_index);
-            liquidity_mining::update_user_reward_manager(
-                reserve::borrows_pool_reward_manager_mut(borrow_reserve),
-                user_reward_manager,
-                clock
-            );
 
             let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
             let market_value_upper_bound = reserve::market_value_upper_bound(
@@ -387,12 +373,6 @@ module suilend::obligation {
         };
 
         let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, borrow.user_reward_manager_index);
-        liquidity_mining::update_user_reward_manager(
-            reserve::borrows_pool_reward_manager_mut(reserve),
-            user_reward_manager,
-            clock
-        );
-
         liquidity_mining::change_user_reward_manager_share(
             reserve::borrows_pool_reward_manager_mut(reserve),
             user_reward_manager,
@@ -523,8 +503,6 @@ module suilend::obligation {
         let user_reward_manager_index = find_user_reward_manager_index(obligation, pool_reward_manager);
         let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, user_reward_manager_index);
 
-        liquidity_mining::update_pool_reward_manager(pool_reward_manager, clock);
-        liquidity_mining::update_user_reward_manager(pool_reward_manager, user_reward_manager, clock);
         liquidity_mining::claim_rewards<T>(pool_reward_manager, user_reward_manager, clock, reward_index)
     }
 
@@ -608,7 +586,10 @@ module suilend::obligation {
             )
         );
 
-        let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, deposit.user_reward_manager_index);
+        let user_reward_manager = vector::borrow_mut(
+            &mut obligation.user_reward_managers, 
+            deposit.user_reward_manager_index
+        );
         liquidity_mining::change_user_reward_manager_share(
             reserve::deposits_pool_reward_manager_mut(reserve),
             user_reward_manager,
@@ -1776,17 +1757,9 @@ module suilend::obligation {
         assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
         assert!(sui_deposit.market_value == decimal::from(1000), 4);
 
-        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, sui_deposit.user_reward_manager_index);
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 5);
-        assert!(liquidity_mining::last_update_time_ms(user_reward_manager) == 1000, 6);
-
         let usdc_deposit = vector::borrow(&obligation.deposits, 1);
         assert!(usdc_deposit.deposited_ctoken_amount == 100 * 1_000_000, 3);
         assert!(usdc_deposit.market_value == decimal::from(100), 4);
-
-        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, usdc_deposit.user_reward_manager_index);
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000, 5);
-        assert!(liquidity_mining::last_update_time_ms(user_reward_manager) == 1000, 6);
 
         assert!(vector::length(&obligation.borrows) == 1, 0);
 
@@ -1794,10 +1767,6 @@ module suilend::obligation {
         assert!(usdc_borrow.borrowed_amount == decimal::from(101 * 1_000_000), 1);
         assert!(usdc_borrow.cumulative_borrow_rate == decimal::from_percent(202), 2);
         assert!(usdc_borrow.market_value == decimal::from(101), 3);
-
-        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, usdc_borrow.user_reward_manager_index);
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000 / 2, 5);
-        assert!(liquidity_mining::last_update_time_ms(user_reward_manager) == 1000, 6);
 
         assert!(obligation.deposited_value_usd == decimal::from(1100), 0);
         assert!(obligation.allowed_borrow_value_usd == decimal::from(230), 1);
