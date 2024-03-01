@@ -20,6 +20,7 @@ module suilend::reserve {
         Self, 
         ReserveConfig, 
         calculate_apr, 
+        calculate_supply_apr,
         deposit_limit, 
         deposit_limit_usd, 
         borrow_limit, 
@@ -108,12 +109,42 @@ module suilend::reserve {
     struct InterestUpdateEvent has drop, copy {
         lending_market: TypeName,
         coin_type: TypeName,
+        reserve_id: address,
         cumulative_borrow_rate: Decimal,
         available_amount: u64,
         borrowed_amount: Decimal,
         unclaimed_spread_fees: Decimal,
         ctoken_supply: u64,
+
+        // data for sui
+        borrow_interest_paid: Decimal,
+        spread_fee: Decimal,
+        supply_interest_earned: Decimal,
+        borrow_interest_paid_usd_estimate: Decimal,
+        protocol_fee_usd_estimate: Decimal,
+        supply_interest_earned_usd_estimate: Decimal,
     }
+
+    struct ReserveAssetDataEvent has drop, copy {
+        lending_market: TypeName,
+        coin_type: TypeName,
+        reserve_id: address,
+        available_amount: Decimal,
+        supply_amount: Decimal,
+        borrowed_amount: Decimal,
+        available_amount_usd_estimate: Decimal,
+        supply_amount_usd_estimate: Decimal,
+        borrowed_amount_usd_estimate: Decimal,
+        borrow_apr: Decimal,
+        supply_apr: Decimal,
+
+        ctoken_supply: u64,
+        cumulative_borrow_rate: Decimal,
+        price: Decimal,
+        smoothed_price: Decimal,
+        price_last_update_timestamp_s: u64,
+    }
+
 
     // === Constructor ===
     public(friend) fun create_reserve<P, T>(
@@ -357,21 +388,30 @@ module suilend::reserve {
     }
 
     // === Public-Friend Functions
+
+    // deducts the fees during liquidation, returns (protocol_fee_amount, liquidator_bonus_amount)
     public(friend) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
-    ) {
+    ): (u64, u64) {
         let bonus = liquidation_bonus(config(reserve));
         let protocol_liquidation_fee = protocol_liquidation_fee(config(reserve));
         let take_rate = div(
             protocol_liquidation_fee,
             add(add(decimal::from(1), bonus), protocol_liquidation_fee)
         );
-
-        let fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
+        let protocol_fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
 
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, fee_amount));
+        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, protocol_fee_amount));
+
+        let bonus_rate = div(
+            bonus,
+            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
+        );
+        let liquidator_bonus_amount = ceil(mul(bonus_rate, decimal::from(balance::value(ctokens))));
+
+        (protocol_fee_amount, liquidator_bonus_amount)
     }
 
     public(friend) fun update_reserve_config<P>(
@@ -427,9 +467,11 @@ module suilend::reserve {
             sub(compounded_borrow_rate, decimal::from(1))
         );
 
+        let spread_fee = mul(net_new_debt, spread_fee(config(reserve)));
+
         reserve.unclaimed_spread_fees = add(
             reserve.unclaimed_spread_fees,
-            mul(net_new_debt, spread_fee(config(reserve)))
+            spread_fee
         );
 
         reserve.borrowed_amount = add(
@@ -442,11 +484,19 @@ module suilend::reserve {
         event::emit(InterestUpdateEvent {
             lending_market: type_name::get<P>(),
             coin_type: reserve.coin_type,
+            reserve_id: object::uid_to_address(&reserve.id),
             cumulative_borrow_rate: reserve.cumulative_borrow_rate,
             available_amount: reserve.available_amount,
             borrowed_amount: reserve.borrowed_amount,
             unclaimed_spread_fees: reserve.unclaimed_spread_fees,
             ctoken_supply: reserve.ctoken_supply,
+
+            borrow_interest_paid: net_new_debt,
+            spread_fee: spread_fee,
+            supply_interest_earned: sub(net_new_debt, spread_fee),
+            borrow_interest_paid_usd_estimate: market_value(reserve, net_new_debt),
+            protocol_fee_usd_estimate: market_value(reserve, spread_fee),
+            supply_interest_earned_usd_estimate: market_value(reserve, sub(net_new_debt, spread_fee)),
         });
     }
 
@@ -502,6 +552,7 @@ module suilend::reserve {
             EDepositLimitExceeded
         );
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
             &mut reserve.id, 
             BalanceKey {}
@@ -526,6 +577,7 @@ module suilend::reserve {
 
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
             &mut reserve.id, 
             BalanceKey {}
@@ -562,6 +614,7 @@ module suilend::reserve {
 
         assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
             &mut reserve.id, 
             BalanceKey {}
@@ -584,6 +637,7 @@ module suilend::reserve {
             decimal::from(balance::value(&liquidity))
         );
 
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::join(&mut balances.available_amount, liquidity);
     }
@@ -592,6 +646,7 @@ module suilend::reserve {
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
     ) {
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::join(&mut balances.deposited_ctokens, ctokens);
     }
@@ -600,8 +655,38 @@ module suilend::reserve {
         reserve: &mut Reserve<P>, 
         amount: u64
     ): Balance<CToken<P, T>> {
+        log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::split(&mut balances.deposited_ctokens, amount)
+    }
+
+    // === Private Functions ===
+    fun log_reserve_data<P>(reserve: &Reserve<P>){
+        let available_amount_decimal = decimal::from(reserve.available_amount);
+        let supply_amount = total_supply(reserve);
+        let cur_util = calculate_utilization_rate(reserve);
+        let borrow_apr = calculate_apr(config(reserve), cur_util);
+        let supply_apr = calculate_supply_apr(config(reserve), cur_util, borrow_apr);
+
+        event::emit(ReserveAssetDataEvent {
+            lending_market: type_name::get<P>(),
+            coin_type: reserve.coin_type,
+            reserve_id: object::uid_to_address(&reserve.id),
+            available_amount: available_amount_decimal,
+            supply_amount: supply_amount,
+            borrowed_amount: reserve.borrowed_amount,
+            available_amount_usd_estimate: market_value(reserve, available_amount_decimal),
+            supply_amount_usd_estimate: market_value(reserve, supply_amount),
+            borrowed_amount_usd_estimate: market_value(reserve, reserve.borrowed_amount),
+            borrow_apr: borrow_apr,
+            supply_apr: supply_apr,
+
+            ctoken_supply: reserve.ctoken_supply,
+            cumulative_borrow_rate: reserve.cumulative_borrow_rate,
+            price: reserve.price,
+            smoothed_price: reserve.smoothed_price,
+            price_last_update_timestamp_s: reserve.price_last_update_timestamp_s,
+        });
     }
 
     // === Test Functions ===

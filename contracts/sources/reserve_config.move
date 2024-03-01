@@ -239,6 +239,11 @@ module suilend::reserve_config {
         decimal::from(0)
     }
 
+    public fun calculate_supply_apr(config:&ReserveConfig, cur_util: Decimal, borrow_apr: Decimal): Decimal {
+        let spread_fee = spread_fee(config);
+        mul(mul(sub(decimal::from(1), spread_fee), borrow_apr), cur_util)
+    }
+
     public fun destroy(config: ReserveConfig) {
         let ReserveConfig { 
             open_ltv_pct: _,
