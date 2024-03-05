@@ -1,11 +1,11 @@
 module suilend::rate_limiter {
-    use suilend::decimal::{Self, Decimal, add, sub, mul, div, le};
+    use suilend::decimal::{Self, Decimal, add, sub, mul, div, le, saturating_sub};
 
     const EInvalidConfig: u64 = 0;
     const EInvalidTime: u64 = 1;
     const ERateLimitExceeded: u64 = 2;
 
-    struct RateLimiter has store, drop {
+    struct RateLimiter has store, drop, copy {
         /// configuration parameters
         config: RateLimiterConfig,
 
@@ -18,7 +18,7 @@ module suilend::rate_limiter {
         cur_qty: Decimal,
     }
 
-    struct RateLimiterConfig has store, drop {
+    struct RateLimiterConfig has store, drop, copy {
         /// Rate limiter window duration
         window_duration: u64,
         /// Rate limiter param. Max outflow in a window
@@ -95,6 +95,14 @@ module suilend::rate_limiter {
         );
     }
 
+    public fun remaining_outflow(rate_limiter: &mut RateLimiter, cur_time: u64): Decimal {
+        update_internal(rate_limiter, cur_time);
+        saturating_sub(
+            decimal::from(rate_limiter.config.max_outflow), 
+            current_outflow(rate_limiter, cur_time)
+        )
+    }
+
     #[test]
     fun test_rate_limiter() {
         let rate_limiter = new(
@@ -117,6 +125,7 @@ module suilend::rate_limiter {
         while (i < 19) {
             process_qty(&mut rate_limiter, i, decimal::from(10));
             assert!(current_outflow(&rate_limiter, i) == decimal::from(100), 0);
+            assert!(remaining_outflow(&mut rate_limiter, i) == decimal::from(0), 0);
             i = i + 1;
         };
 

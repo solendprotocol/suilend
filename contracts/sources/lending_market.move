@@ -3,14 +3,14 @@ module suilend::lending_market {
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use sui::event::{Self};
-    use suilend::decimal::{Self, Decimal, ceil, gt};
+    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
     use suilend::reserve::{Self, Reserve, CToken};
-    use suilend::reserve_config::{ReserveConfig};
+    use suilend::reserve_config::{ReserveConfig, borrow_fee};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata};
     use sui::balance::{Self};
@@ -32,6 +32,7 @@ module suilend::lending_market {
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
+    const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
     struct LENDING_MARKET has drop {}
@@ -346,6 +347,10 @@ module suilend::lending_market {
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
 
+        if (amount == U64_MAX) {
+            amount = max_borrow_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
+        };
+
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
         let origination_fee_amount = borrow_amount_with_fees - balance::value(&receive_balance); 
         obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
@@ -389,6 +394,10 @@ module suilend::lending_market {
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        if (amount == U64_MAX) {
+            amount = max_withdraw_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
+        };
 
         obligation::withdraw<P>(obligation, reserve, clock, amount);
 
@@ -626,6 +635,81 @@ module suilend::lending_market {
 
 
     // === Public-View Functions ===
+    fun max_borrow_amount<P>(
+        rate_limiter: RateLimiter,
+        obligation: &Obligation<P>, 
+        reserve: &Reserve<P>,
+        clock: &Clock
+    ): u64 {
+        let remaining_outflow_usd = rate_limiter::remaining_outflow(
+            &mut rate_limiter, 
+            clock::timestamp_ms(clock) / 1000
+        );
+
+        let rate_limiter_max_borrow_amount = floor(reserve::usd_to_token_amount_lower_bound(
+            reserve, 
+            min(remaining_outflow_usd, decimal::from(1_000_000_000))
+        ));
+
+        let max_borrow_amount_including_fees = sui::math::min(
+            sui::math::min(
+                obligation::max_borrow_amount(obligation, reserve),
+                reserve::max_borrow_amount(reserve)
+            ),
+            rate_limiter_max_borrow_amount
+        );
+
+        // account for fee
+        let max_borrow_amount = floor(div(
+            decimal::from(max_borrow_amount_including_fees),
+            add(decimal::from(1), borrow_fee(reserve::config(reserve)))
+        ));
+
+        let fee = ceil(mul(
+            decimal::from(max_borrow_amount), 
+            borrow_fee(reserve::config(reserve))
+        ));
+
+        // since the fee is ceiling'd, we need to subtract 1 from the max_borrow_amount in certain
+        // cases
+        if (max_borrow_amount + fee > max_borrow_amount_including_fees && max_borrow_amount > 0) {
+            max_borrow_amount = max_borrow_amount - 1;
+        };
+
+        max_borrow_amount
+    }
+
+    // maximum amount that can be withdrawn and redeemed
+    fun max_withdraw_amount<P>(
+        rate_limiter: RateLimiter,
+        obligation: &Obligation<P>, 
+        reserve: &Reserve<P>,
+        clock: &Clock
+    ): u64 {
+        let remaining_outflow_usd = rate_limiter::remaining_outflow(
+            &mut rate_limiter, 
+            clock::timestamp_ms(clock) / 1000
+        );
+
+        let rate_limiter_max_withdraw_amount = reserve::usd_to_token_amount_lower_bound(
+            reserve, 
+            min(remaining_outflow_usd, decimal::from(1_000_000_000))
+        );
+
+        let rate_limiter_max_withdraw_ctoken_amount = floor(div(
+            rate_limiter_max_withdraw_amount,
+            reserve::ctoken_ratio(reserve)
+        ));
+
+        sui::math::min(
+            sui::math::min(
+                obligation::max_withdraw_amount(obligation, reserve),
+                rate_limiter_max_withdraw_ctoken_amount
+            ),
+            reserve::max_redeem_amount(reserve)
+        )
+    }
+
     public fun obligation_id<P>(cap: &ObligationOwnerCap<P>): ID {
         cap.obligation_id
     }
@@ -1893,7 +1977,7 @@ module suilend::lending_market {
 
     }
 
-    #[test]
+        #[test]
     public fun test_forgive_debt() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
@@ -1999,7 +2083,7 @@ module suilend::lending_market {
 
         // liquidate the obligation
         let sui = coin::mint_for_testing<TEST_SUI>(1 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let (usdc, exemption) = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
+        let (usdc, _exemption) = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
             &mut lending_market,
             obligation_id(&obligation_owner_cap),
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
@@ -2033,6 +2117,264 @@ module suilend::lending_market {
 
         test_utils::destroy(usdc);
         test_utils::destroy(sui);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
+     #[test]
+    public fun test_max_borrow() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
+            let bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: {
+                        let config = reserve_config::default_reserve_config();
+                        let builder = reserve_config::from(
+                            &config,
+                            test_scenario::ctx(&mut scenario)
+                        );
+
+                        test_utils::destroy(config);
+
+                        reserve_config::set_borrow_fee_bps(&mut builder, 10);
+                        // reserve_config::set_borrow_limit(&mut builder, 4 * 1_000_000_000);
+                        // reserve_config::set_borrow_limit_usd(&mut builder, 20);
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // create obligation
+        let obligation_owner_cap = create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
+        let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            coins,
+            test_scenario::ctx(&mut scenario)
+        );
+        deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            ctokens,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices)
+        );
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
+
+        let sui = borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            U64_MAX,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        assert!(coin::value(&sui) == 4_995_004_995, 0);
+
+        test_utils::destroy(sui);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_max_withdraw() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
+            let bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_borrow_weight_bps(&mut builder, 20_000);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // create obligation
+        let obligation_owner_cap = create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let coins = coin::mint_for_testing<TEST_USDC>(200 * 1_000_000, test_scenario::ctx(&mut scenario));
+        let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            coins,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            ctokens,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices)
+        );
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
+
+        let sui = borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            2_500_000_000,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        update_rate_limiter_config<LENDING_MARKET>(
+            &owner_cap,
+            &mut lending_market,
+            &clock,
+            rate_limiter::new_config(1, 10) // disabled
+        );
+
+        let cusdc = withdraw_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            U64_MAX,
+            test_scenario::ctx(&mut scenario)
+        );
+        let usdc = redeem_ctokens_and_withdraw_liquidity<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            cusdc,
+            option::none(),
+            test_scenario::ctx(&mut scenario)
+        );
+
+        assert!(coin::value(&usdc) == 10 * 1_000_000, 0);
+
+        test_utils::destroy(sui);
+        test_utils::destroy(usdc);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);

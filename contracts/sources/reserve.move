@@ -324,6 +324,33 @@ module suilend::reserve {
         market_value_upper_bound(reserve, liquidity_amount)
     }
 
+    // eg how much sui can i get for 1000 USDC
+    public fun usd_to_token_amount_lower_bound<P>(
+        reserve: &Reserve<P>, 
+        usd_amount: Decimal
+    ): Decimal {
+        div(
+            mul(
+                decimal::from(math::pow(10, reserve.mint_decimals)),
+                usd_amount
+            ),
+            price_upper_bound(reserve)
+        )
+    }
+
+    public fun usd_to_token_amount_upper_bound<P>(
+        reserve: &Reserve<P>, 
+        usd_amount: Decimal
+    ): Decimal {
+        div(
+            mul(
+                decimal::from(math::pow(10, reserve.mint_decimals)),
+                usd_amount
+            ),
+            price_lower_bound(reserve)
+        )
+    }
+
 
     public fun cumulative_borrow_rate<P>(reserve: &Reserve<P>): Decimal {
         reserve.cumulative_borrow_rate
@@ -382,9 +409,44 @@ module suilend::reserve {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
     }
 
-    // === Public-Friend Functions
-    // deducts the fees during liquidation, returns (protocol_fee_amount, liquidator_bonus_amount)
-    public(friend) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    // maximum amount that can be borrowed from the reserve. does not account for fees!
+    public fun max_borrow_amount<P>(reserve: &Reserve<P>): u64 {
+        floor(min(
+            saturating_sub(
+                decimal::from(reserve.available_amount),
+                decimal::from(MIN_AVAILABLE_AMOUNT)
+            ),
+            min(
+                // borrow limit
+                saturating_sub(
+                    decimal::from(borrow_limit(config(reserve))),
+                    reserve.borrowed_amount
+                ),
+                // usd borrow limit
+                usd_to_token_amount_lower_bound(
+                    reserve,
+                    saturating_sub(
+                        decimal::from(borrow_limit_usd(config(reserve))),
+                        market_value(reserve, reserve.borrowed_amount)
+                    )
+                )
+            )
+        ))
+    }
+
+    // calculates the maximum amount of ctokens that can be redeemed
+    public fun max_redeem_amount<P>(reserve: &Reserve<P>): u64 {
+        floor(div(
+            sub(
+                decimal::from(reserve.available_amount),
+                decimal::from(MIN_AVAILABLE_AMOUNT)
+            ),
+            ctoken_ratio(reserve)
+        ))
+    }
+
+    // === Public-Mutative Functions
+    public fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
     }
 
