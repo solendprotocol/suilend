@@ -15,7 +15,7 @@ module suilend::obligation {
         isolated
     };
     use sui::clock::{Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, ceil, floor, le, eq};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq};
     use suilend::liquidity_mining::{Self, UserRewardManager, PoolRewardManager};
 
     #[test_only]
@@ -323,7 +323,7 @@ module suilend::obligation {
         reserve: &mut Reserve<P>,
         clock: &Clock,
         max_repay_amount: Decimal,
-    ): u64 {
+    ): Decimal {
         let borrow_index = find_borrow_index(obligation, reserve);
         assert!(borrow_index < vector::length(&obligation.borrows), EBorrowNotFound);
         let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
@@ -398,7 +398,7 @@ module suilend::obligation {
             }  = vector::remove(&mut obligation.borrows, borrow_index);
         };
 
-        ceil(repay_amount)
+        repay_amount
     }
 
     /// Process a withdraw action. Makes sure that the obligation is healthy after the withdraw.
@@ -422,7 +422,7 @@ module suilend::obligation {
         withdraw_reserve_array_index: u64,
         clock: &Clock,
         repay_amount: u64,
-    ): (u64, u64) {
+    ): (u64, Decimal) {
         assert!(is_liquidatable(obligation), EObligationIsNotLiquidatable);
 
         let repay_reserve = vector::borrow(reserves, repay_reserve_array_index);
@@ -463,7 +463,8 @@ module suilend::obligation {
             add(decimal::from(1), bonus)
         );
 
-        let final_repay_amount;
+        // repay amount, but in decimals. called settle amount to keep logic in line with 
+        // spl-lending
         let final_settle_amount;
         let final_withdraw_amount;
 
@@ -471,14 +472,12 @@ module suilend::obligation {
             let repay_pct = div(deposit.market_value, withdraw_value);
 
             final_settle_amount = mul(repay_amount, repay_pct);
-            final_repay_amount = ceil(final_settle_amount);
             final_withdraw_amount = deposit.deposited_ctoken_amount;
         }
         else {
             let withdraw_pct = div(withdraw_value, deposit.market_value);
 
             final_settle_amount = repay_amount;
-            final_repay_amount = ceil(final_settle_amount);
             final_withdraw_amount = floor(
                 mul(decimal::from(deposit.deposited_ctoken_amount), withdraw_pct)
             );
@@ -497,7 +496,7 @@ module suilend::obligation {
             final_withdraw_amount
         );
 
-        (final_withdraw_amount, final_repay_amount)
+        (final_withdraw_amount, final_settle_amount)
     }
 
     public(friend) fun claim_rewards<P, T>(
@@ -1471,7 +1470,7 @@ module suilend::obligation {
             &clock, 
             decimal::from(25 * 1_000_000)
         );
-        assert!(repay_amount == 25 * 1_000_000, 0);
+        assert!(repay_amount == decimal::from(25 * 1_000_000), 0);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -1530,7 +1529,7 @@ module suilend::obligation {
         reserve::compound_interest(&mut usdc_reserve, &clock);
 
         let repay_amount = repay<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, decimal::from(500_000));
-        assert!(repay_amount == 500_000, 0);
+        assert!(repay_amount == decimal::from(500_000), 0);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -1591,7 +1590,7 @@ module suilend::obligation {
             &clock,
             decimal::from(101 * 1_000_000)
         );
-        assert!(repay_amount == 100 * 1_000_000, 0);
+        assert!(repay_amount == decimal::from(100 * 1_000_000), 0);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -1890,7 +1889,7 @@ module suilend::obligation {
             &mut reserves,
             &clock
         );
-        liquidate<TEST_MARKET>(
+        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -1898,6 +1897,8 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
+        assert!(withdraw_amount == 4_400_000_000, 0);
+        assert!(repay_amount == decimal::from(40 * 1_000_000), 1);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2005,7 +2006,7 @@ module suilend::obligation {
             &clock
         );
 
-        liquidate<TEST_MARKET>(
+        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2013,6 +2014,8 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
+        assert!(withdraw_amount == 1_100_000_000, 0);
+        assert!(repay_amount == decimal::from(10 * 1_000_000), 1);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2099,7 +2102,7 @@ module suilend::obligation {
             &mut reserves,
             &clock
         );
-        liquidate<TEST_MARKET>(
+        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2107,6 +2110,8 @@ module suilend::obligation {
             &clock,
             1_000_000_000
         );
+        assert!(withdraw_amount == 110_000_000, 0);
+        assert!(repay_amount == decimal::from(1_000_000), 1);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2210,7 +2215,7 @@ module suilend::obligation {
             &clock
         );
 
-        liquidate<TEST_MARKET>(
+        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2218,6 +2223,8 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
+        assert!(withdraw_amount == 550_000, 0);
+        assert!(repay_amount == decimal::from(500_000), 1);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 

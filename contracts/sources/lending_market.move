@@ -3,7 +3,7 @@ module suilend::lending_market {
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use sui::event::{Self};
-    use suilend::decimal::{Self, Decimal};
+    use suilend::decimal::{Self, Decimal, ceil, gt};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
@@ -407,12 +407,16 @@ module suilend::lending_market {
         );
 
         assert!(withdraw_ctoken_amount > 0, ETooSmall);
-        assert!(required_repay_amount > 0, ETooSmall);
+        assert!(gt(required_repay_amount, decimal::from(0)), ETooSmall);
 
-        let required_repay_coins = coin::split(repay_coins, required_repay_amount, ctx);
+        let required_repay_coins = coin::split(repay_coins, ceil(required_repay_amount), ctx);
         let repay_reserve = vector::borrow_mut(&mut lending_market.reserves, repay_reserve_array_index);
         assert!(reserve::coin_type(repay_reserve) == type_name::get<Repay>(), EWrongType);
-        reserve::repay_liquidity<P, Repay>(repay_reserve, coin::into_balance(required_repay_coins));
+        reserve::repay_liquidity<P, Repay>(
+            repay_reserve, 
+            coin::into_balance(required_repay_coins), 
+            required_repay_amount
+        );
 
         let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
         assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
@@ -427,7 +431,7 @@ module suilend::lending_market {
             repay_reserve_id: object::id_address(repay_reserve),
             withdraw_reserve_id: object::id_address(withdraw_reserve),
             obligation_id: object::id_address(obligation),
-            repay_amount: required_repay_amount,
+            repay_amount: ceil(required_repay_amount),
             withdraw_amount: withdraw_ctoken_amount,
             protocol_fee_amount,
             liquidator_bonus_amount
@@ -458,22 +462,22 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
-        let final_repay_amount = obligation::repay<P>(
+        let repay_amount = obligation::repay<P>(
             obligation, 
             reserve, 
             clock,
             decimal::from(coin::value(max_repay_coins))
         );
 
-        let repay_coins = coin::split(max_repay_coins, final_repay_amount, ctx);
-        reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins));
+        let repay_coins = coin::split(max_repay_coins, ceil(repay_amount), ctx);
+        reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), repay_amount);
 
         event::emit(RepayEvent {
             lending_market: type_name::get<P>(),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
-            liquidity_amount: final_repay_amount,
+            liquidity_amount: ceil(repay_amount),
         });
 
     }

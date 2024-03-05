@@ -49,6 +49,7 @@ module suilend::reserve {
     const EBorrowLimitExceeded: u64 = 3;
     const EInvalidPrice: u64 = 4;
     const EMinAvailableAmountViolated: u64 = 5;
+    const EInvalidRepayBalance: u64 = 6;
 
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
@@ -629,12 +630,15 @@ module suilend::reserve {
 
     public(friend) fun repay_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
-        liquidity: Balance<T>
+        liquidity: Balance<T>,
+        settle_amount: Decimal
     ) {
+        assert!(balance::value(&liquidity) == ceil(settle_amount), EInvalidRepayBalance);
+
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
         reserve.borrowed_amount = saturating_sub(
             reserve.borrowed_amount, 
-            decimal::from(balance::value(&liquidity))
+            settle_amount
         );
 
         log_reserve_data(reserve);
@@ -1291,10 +1295,10 @@ module suilend::reserve {
         let available_amount_old = reserve.available_amount;
         let borrowed_amount_old = reserve.borrowed_amount;
 
-        repay_liquidity(&mut reserve, tokens);
+        repay_liquidity(&mut reserve, tokens, decimal::from_percent_u64(39_901));
 
         assert!(reserve.available_amount == available_amount_old + 400, 0);
-        assert!(reserve.borrowed_amount == sub(borrowed_amount_old, decimal::from(400)), 0);
+        assert!(reserve.borrowed_amount == sub(borrowed_amount_old, decimal::from_percent_u64(39_901)), 0);
 
         let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
             &mut reserve.id, 
