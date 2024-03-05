@@ -433,7 +433,10 @@ module suilend::obligation {
         // invariant: repay_amount <= borrow.borrowed_amount
         let repay_amount = if (le(borrow.market_value, decimal::from(1))) {
             // full liquidation
-            borrow.borrowed_amount
+            min(
+                borrow.borrowed_amount,
+                decimal::from(repay_amount)
+            )
         }
         else { // partial liquidation
             let max_repay_value = min(
