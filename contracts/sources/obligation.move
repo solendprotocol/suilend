@@ -33,9 +33,13 @@ module suilend::obligation {
     const EBorrowNotFound: u64 = 2;
     const EDepositNotFound: u64 = 3;
     const EIsolatedAssetViolation: u64 = 4;
+    const ETooManyDeposits: u64 = 5;
+    const ETooManyBorrows: u64 = 6;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
+    const MAX_DEPOSITS: u64 = 5;
+    const MAX_BORROWS: u64 = 5;
 
     // === Structs ===
     struct Obligation<phantom P> has key, store {
@@ -230,6 +234,8 @@ module suilend::obligation {
         ctoken_amount: u64,
     ) {
         let deposit_index = find_or_add_deposit(obligation, reserve, clock);
+        assert!(vector::length(&obligation.deposits) <= MAX_DEPOSITS, ETooManyDeposits);
+
         let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
 
         deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount + ctoken_amount;
@@ -273,8 +279,9 @@ module suilend::obligation {
         amount: u64,
     ) {
         let borrow_index = find_or_add_borrow(obligation, reserve, clock);
-        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
+        assert!(vector::length(&obligation.borrows) <= MAX_BORROWS, ETooManyBorrows);
 
+        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
         borrow.borrowed_amount = add(borrow.borrowed_amount, decimal::from(amount));
 
         // update health values
