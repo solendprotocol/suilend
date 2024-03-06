@@ -5,7 +5,7 @@ module suilend::reserve {
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
     use sui::tx_context::{TxContext};
-    use sui::object::{Self, UID};
+    use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
     use std::option::{Self};
     use sui::event::{Self};
@@ -60,6 +60,7 @@ module suilend::reserve {
     // === Structs ===
     struct Reserve<phantom P> has key, store {
         id: UID,
+        lending_market_id: ID,
         // array index in lending market's reserve array
         array_index: u64,
         coin_type: TypeName,
@@ -108,7 +109,7 @@ module suilend::reserve {
 
     // === Events ===
     struct InterestUpdateEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         cumulative_borrow_rate: Decimal,
@@ -127,7 +128,7 @@ module suilend::reserve {
     }
 
     struct ReserveAssetDataEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         available_amount: Decimal,
@@ -149,6 +150,7 @@ module suilend::reserve {
 
     // === Constructor ===
     public(friend) fun create_reserve<P, T>(
+        lending_market_id: ID,
         config: ReserveConfig, 
         array_index: u64,
         coin_metadata: &CoinMetadata<T>,
@@ -162,6 +164,7 @@ module suilend::reserve {
 
         let reserve = Reserve {
             id: object::new(ctx),
+            lending_market_id,
             array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
@@ -481,7 +484,7 @@ module suilend::reserve {
         reserve.interest_last_update_timestamp_s = cur_time_s;
 
         event::emit(InterestUpdateEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_to_address(&reserve.lending_market_id),
             coin_type: reserve.coin_type,
             reserve_id: object::uid_to_address(&reserve.id),
             cumulative_borrow_rate: reserve.cumulative_borrow_rate,
@@ -671,7 +674,7 @@ module suilend::reserve {
         let supply_apr = calculate_supply_apr(config(reserve), cur_util, borrow_apr);
 
         event::emit(ReserveAssetDataEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_to_address(&reserve.lending_market_id),
             coin_type: reserve.coin_type,
             reserve_id: object::uid_to_address(&reserve.id),
             available_amount: available_amount_decimal,
@@ -729,6 +732,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            lending_market_id: object::uid_to_inner(&object::new(test_scenario::ctx(&mut scenario))),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(default_reserve_config()),
@@ -770,6 +774,7 @@ module suilend::reserve {
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
+            lending_market_id: object::uid_to_inner(&object::new(test_scenario::ctx(&mut scenario))),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new({
@@ -1326,6 +1331,7 @@ module suilend::reserve {
     ): Reserve<P> {
         let reserve = Reserve<P> {
             id: object::new(ctx),
+            lending_market_id: object::uid_to_inner(&object::new(ctx)),
             array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),

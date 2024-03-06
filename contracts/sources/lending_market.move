@@ -79,7 +79,7 @@ module suilend::lending_market {
 
     // === Events ===
     struct MintEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         liquidity_amount: u64,
@@ -87,7 +87,7 @@ module suilend::lending_market {
     }
 
     struct RedeemEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         ctoken_amount: u64,
@@ -95,7 +95,7 @@ module suilend::lending_market {
     }
 
     struct DepositEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         obligation_id: address,
@@ -103,7 +103,7 @@ module suilend::lending_market {
     }
 
     struct WithdrawEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         obligation_id: address,
@@ -111,7 +111,7 @@ module suilend::lending_market {
     }
 
     struct BorrowEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         obligation_id: address,
@@ -120,7 +120,7 @@ module suilend::lending_market {
     }
 
     struct RepayEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
         obligation_id: address,
@@ -128,10 +128,12 @@ module suilend::lending_market {
     }
 
     struct LiquidateEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         repay_reserve_id: address,
         withdraw_reserve_id: address,
         obligation_id: address,
+        repay_coin_type: TypeName,
+        withdraw_coin_type: TypeName,
         repay_amount: u64,
         withdraw_amount: u64,
         protocol_fee_amount: u64,
@@ -227,7 +229,7 @@ module suilend::lending_market {
         assert!(balance::value(&ctokens) > 0, ETooSmall);
 
         event::emit(MintEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             liquidity_amount: deposit_amount,
@@ -279,7 +281,7 @@ module suilend::lending_market {
         assert!(balance::value(&liquidity) > 0, ETooSmall);
 
         event::emit(RedeemEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             ctoken_amount,
@@ -345,7 +347,7 @@ module suilend::lending_market {
         );
 
         event::emit(BorrowEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -379,7 +381,7 @@ module suilend::lending_market {
         obligation::withdraw<P>(obligation, reserve, clock, amount);
 
         event::emit(WithdrawEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -439,10 +441,12 @@ module suilend::lending_market {
         let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
 
         event::emit(LiquidateEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             repay_reserve_id: object::id_address(repay_reserve),
             withdraw_reserve_id: object::id_address(withdraw_reserve),
             obligation_id: object::id_address(obligation),
+            repay_coin_type: type_name::get<Repay>(),
+            withdraw_coin_type: type_name::get<Withdraw>(),
             repay_amount: ceil(required_repay_amount),
             withdraw_amount: withdraw_ctoken_amount,
             protocol_fee_amount,
@@ -485,7 +489,7 @@ module suilend::lending_market {
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), repay_amount);
 
         event::emit(RepayEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -611,6 +615,7 @@ module suilend::lending_market {
         assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
 
         let reserve = reserve::create_reserve<P, T>(
+            object::id(lending_market),
             config, 
             vector::length(&lending_market.reserves),
             coin_metadata, 
@@ -760,7 +765,7 @@ module suilend::lending_market {
         );
 
         event::emit(DepositEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id: object::id_address(lending_market),
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
