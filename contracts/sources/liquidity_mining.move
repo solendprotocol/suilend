@@ -25,6 +25,7 @@ module suilend::liquidity_mining {
     // === Friends ===
     friend suilend::lending_market;
     friend suilend::obligation;
+    friend suilend::reserve;
 
     /// This struct manages all pool_rewards for a given stake pool.
     struct PoolRewardManager has key, store {
@@ -87,8 +88,8 @@ module suilend::liquidity_mining {
         user_reward_manager.last_update_time_ms
     }
 
-    // === Public-Mutative Functions ===
-    public fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
+    // === Public-Friend functions
+    public(friend) fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
         PoolRewardManager {
             id: object::new(ctx),
             total_shares: 0,
@@ -97,7 +98,7 @@ module suilend::liquidity_mining {
         }
     }
 
-    public fun add_pool_reward<T>(
+    public(friend) fun add_pool_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         rewards: Balance<T>,
         start_time_ms: u64,
@@ -134,7 +135,7 @@ module suilend::liquidity_mining {
 
     /// Close pool_reward campaign, claim dust amounts of rewards, and destroy object.
     /// This can only be called if the pool_reward period is over and all rewards have been claimed.
-    public fun close_pool_reward<T>(
+    public(friend) fun close_pool_reward<T>(
         pool_reward_manager: 
         &mut PoolRewardManager, 
         index: u64, 
@@ -173,7 +174,7 @@ module suilend::liquidity_mining {
 
     /// Cancel pool_reward campaign and claim unallocated rewards. Effectively sets the 
     /// end time of the pool_reward campaign to the current time.
-    public fun cancel_pool_reward<T>(
+    public(friend) fun cancel_pool_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         index: u64,
         clock: &Clock
@@ -321,7 +322,6 @@ module suilend::liquidity_mining {
         user_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
-    // === Public-Friend functions
     /// Create a new user_reward_manager object with zero share.
     public(friend) fun new_user_reward_manager(
         pool_reward_manager: &mut PoolRewardManager,

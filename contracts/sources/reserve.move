@@ -379,18 +379,16 @@ module suilend::reserve {
         ceil(mul(decimal::from(borrow_amount), borrow_fee(config(reserve))))
     }
 
-    // === Public-Mutative Functions
-    public fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    // === Public-Friend Functions
+    // deducts the fees during liquidation, returns (protocol_fee_amount, liquidator_bonus_amount)
+    public(friend) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
     }
 
-    public fun borrows_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    public(friend) fun borrows_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.borrows_pool_reward_manager
     }
 
-    // === Public-Friend Functions
-
-    // deducts the fees during liquidation, returns (protocol_fee_amount, liquidator_bonus_amount)
     public(friend) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,

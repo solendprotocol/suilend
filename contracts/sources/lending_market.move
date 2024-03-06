@@ -18,6 +18,7 @@ module suilend::lending_market {
     use std::type_name::{Self, TypeName};
     use std::vector::{Self};
     use std::option::{Self, Option};
+    use suilend::liquidity_mining::{Self};
     use sui::package;
 
     // === Friends ===
@@ -527,6 +528,11 @@ module suilend::lending_market {
             ctx
         );
 
+        if (coin::value(&rewards) == 0) {
+            coin::destroy_zero(rewards);
+            return
+        };
+
         let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
             lending_market, 
             deposit_reserve_id, 
@@ -534,6 +540,11 @@ module suilend::lending_market {
             rewards, 
             ctx
         );
+
+        if (coin::value(&ctokens) == 0) {
+            coin::destroy_zero(ctokens);
+            return
+        };
 
         deposit_ctokens_into_obligation_by_id<P, RewardType>(
             lending_market, 
@@ -614,13 +625,82 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    public fun reserve_mut<P>(
+    public fun add_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
-    ): &mut Reserve<P> {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        vector::borrow_mut(&mut lending_market.reserves, reserve_array_index)
+        is_deposit_reward: bool,
+        rewards: Coin<RewardType>,
+        start_time_ms: u64,
+        end_time_ms: u64,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve::deposits_pool_reward_manager_mut(reserve)
+        } else {
+            reserve::borrows_pool_reward_manager_mut(reserve)
+        };
+
+        liquidity_mining::add_pool_reward<RewardType>(
+            pool_reward_manager, 
+            coin::into_balance(rewards), 
+            start_time_ms, 
+            end_time_ms,
+            clock,
+            ctx
+        );
+    }
+
+    public fun cancel_pool_reward<P, RewardType>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        is_deposit_reward: bool,
+        reward_index: u64,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ): Coin<RewardType> {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve::deposits_pool_reward_manager_mut(reserve)
+        } else {
+            reserve::borrows_pool_reward_manager_mut(reserve)
+        };
+
+        let unallocated_rewards = liquidity_mining::cancel_pool_reward<RewardType>(
+            pool_reward_manager, 
+            reward_index, 
+            clock
+        );
+
+        coin::from_balance(unallocated_rewards, ctx)
+    }
+
+    public fun close_pool_reward<P, RewardType>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        is_deposit_reward: bool,
+        reward_index: u64,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ): Coin<RewardType> {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve::deposits_pool_reward_manager_mut(reserve)
+        } else {
+            reserve::borrows_pool_reward_manager_mut(reserve)
+        };
+
+        let unallocated_rewards = liquidity_mining::close_pool_reward<RewardType>(
+            pool_reward_manager, 
+            reward_index, 
+            clock
+        );
+
+        coin::from_balance(unallocated_rewards, ctx)
     }
 
     public fun update_rate_limiter_config<P>(
@@ -1561,7 +1641,6 @@ module suilend::lending_market {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::reserve_config::{Self, default_reserve_config};
-        use suilend::liquidity_mining::{Self};
 
         use std::type_name::{Self};
 
@@ -1598,40 +1677,34 @@ module suilend::lending_market {
             bag
         }, &mut scenario);
 
-        let usdc_reserve = reserve_mut<LENDING_MARKET>(
-            &owner_cap, 
-            &mut lending_market, 
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>())
-        );
-
         let usdc_rewards = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
         let sui_rewards = coin::mint_for_testing<TEST_SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let pool_reward_manager = reserve::deposits_pool_reward_manager_mut(usdc_reserve);
 
-        liquidity_mining::add_pool_reward(
-            pool_reward_manager,
-            coin::into_balance(usdc_rewards),
+        add_pool_reward<LENDING_MARKET, TEST_USDC>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            true,
+            usdc_rewards,
             0,
             10 * 1_000,
             &clock,
             test_scenario::ctx(&mut scenario)
         );
 
-        liquidity_mining::add_pool_reward(
-            pool_reward_manager,
-            coin::into_balance(sui_rewards),
+        add_pool_reward<LENDING_MARKET, TEST_SUI>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            true,
+            sui_rewards,
             4_000,
             14_000,
             &clock,
             test_scenario::ctx(&mut scenario)
         );
 
-
         clock::set_for_testing(&mut clock, 1 * 1000);
-
-        // set reserve parameters and prices
-        // mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
-        // mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
 
         // create obligation
         let obligation_owner_cap = create_obligation(
@@ -1683,6 +1756,47 @@ module suilend::lending_market {
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
         ) == 50 * 1_000_000_000, 0);
 
+        let remaining_sui_rewards = cancel_pool_reward<LENDING_MARKET, TEST_SUI>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            true,
+            1,
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+        assert!(coin::value(&remaining_sui_rewards) == 50 * 1_000_000_000, 0);
+
+        // nothing to claim!
+        claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            obligation_owner_cap.obligation_id,
+            &clock,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            1,
+            true,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            test_scenario::ctx(&mut scenario)
+        );
+
+        assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
+            obligation(&lending_market, obligation_id(&obligation_owner_cap))
+        ) == 50 * 1_000_000_000, 0);
+
+        let dust_sui_rewards = close_pool_reward<LENDING_MARKET, TEST_SUI>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            true,
+            1,
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        assert!(coin::value(&dust_sui_rewards) == 0, 0);
+
+        test_utils::destroy(dust_sui_rewards);
+        test_utils::destroy(remaining_sui_rewards);
         test_utils::destroy(owner_cap);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(claimed_usdc);
