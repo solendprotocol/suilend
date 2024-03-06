@@ -88,6 +88,12 @@ module suilend::liquidity_mining {
         user_reward_manager.last_update_time_ms
     }
 
+    public fun pool_reward_id(pool_reward_manager: &PoolRewardManager, index: u64): ID {
+        let optional_pool_reward = vector::borrow(&pool_reward_manager.pool_rewards, index);
+        let pool_reward = option::borrow(optional_pool_reward);
+        object::id(pool_reward)
+    }
+
     // === Public-Friend functions
     public(friend) fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
         PoolRewardManager {

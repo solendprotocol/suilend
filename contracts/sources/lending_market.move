@@ -138,6 +138,17 @@ module suilend::lending_market {
         liquidator_bonus_amount: u64,
     }
 
+    struct ClaimRewardEvent has drop, copy {
+        lending_market: TypeName,
+        reserve_id: address,
+        obligation_id: address,
+
+        is_deposit_reward: bool,
+        pool_reward_id: address,
+        coin_type: TypeName,
+        liquidity_amount: u64,
+    }
+
     // === Public-Mutative Functions ===
     public(friend) fun create_lending_market<P>(ctx: &mut TxContext): (
         LendingMarketOwnerCap<P>, 
@@ -788,7 +799,7 @@ module suilend::lending_market {
             reserve::borrows_pool_reward_manager_mut(reserve)
         };
 
-        coin::from_balance(
+        let rewards = coin::from_balance(
             obligation::claim_rewards<P, RewardType>(
                 obligation, 
                 pool_reward_manager,
@@ -796,7 +807,22 @@ module suilend::lending_market {
                 reward_index
             ),
             ctx
-        )
+        );
+
+        let pool_reward_id = liquidity_mining::pool_reward_id(pool_reward_manager, reward_index);
+
+        event::emit(ClaimRewardEvent {
+            lending_market: type_name::get<P>(),
+            reserve_id: object::id_address(reserve),
+            obligation_id: object::id_address(obligation),
+
+            is_deposit_reward,
+            pool_reward_id: object::id_to_address(&pool_reward_id),
+            coin_type: type_name::get<RewardType>(),
+            liquidity_amount: coin::value(&rewards),
+        });
+
+        rewards
     }
 
     // === Test Functions ===
