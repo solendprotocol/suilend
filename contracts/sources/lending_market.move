@@ -127,6 +127,14 @@ module suilend::lending_market {
         liquidity_amount: u64,
     }
 
+    struct ForgiveEvent has drop, copy {
+        lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
+        obligation_id: address,
+        liquidity_amount: u64,
+    }
+
     struct LiquidateEvent has drop, copy {
         lending_market_id: address,
         repay_reserve_id: address,
@@ -494,6 +502,46 @@ module suilend::lending_market {
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             liquidity_amount: ceil(repay_amount),
+        });
+
+    }
+
+    public fun forgive<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        obligation_id: ID,
+        clock: &Clock,
+        max_forgive_amount: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_id
+        );
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let forgive_amount = obligation::forgive<P>(
+            obligation, 
+            reserve, 
+            clock,
+            decimal::from(max_forgive_amount),
+        );
+
+        reserve::forgive_debt<P, T>(reserve, forgive_amount);
+
+        event::emit(ForgiveEvent {
+            lending_market_id: object::id_address(lending_market),
+            coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            obligation_id: object::id_address(obligation),
+            liquidity_amount: ceil(forgive_amount),
         });
 
     }

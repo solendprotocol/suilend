@@ -35,6 +35,7 @@ module suilend::obligation {
     const EIsolatedAssetViolation: u64 = 4;
     const ETooManyDeposits: u64 = 5;
     const ETooManyBorrows: u64 = 6;
+    const EObligationIsNotForgivable: u64 = 7;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -502,6 +503,49 @@ module suilend::obligation {
         (final_withdraw_amount, final_settle_amount)
     }
 
+    public(friend) fun forgive<P>(
+        obligation: &mut Obligation<P>,
+        reserve: &mut Reserve<P>,
+        clock: &Clock,
+        max_forgive_amount: Decimal,
+    ): Decimal {
+        assert!(is_forgivable(obligation), EObligationIsNotForgivable);
+
+        let borrow_index = find_borrow_index(obligation, reserve);
+        assert!(borrow_index < vector::length(&obligation.borrows), EBorrowNotFound);
+        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
+
+        let old_borrow_amount = borrow.borrowed_amount;
+        compound_debt(borrow, reserve);
+
+        let forgive_amount = min(max_forgive_amount, borrow.borrowed_amount);
+
+        let interest_diff = sub(borrow.borrowed_amount, old_borrow_amount);
+
+        borrow.borrowed_amount = sub(borrow.borrowed_amount, forgive_amount);
+
+        let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, borrow.user_reward_manager_index);
+        liquidity_mining::change_user_reward_manager_share(
+            reserve::borrows_pool_reward_manager_mut(reserve),
+            user_reward_manager,
+            liability_shares(borrow),
+            clock
+        );
+
+        if (eq(borrow.borrowed_amount, decimal::from(0))) {
+            let Borrow { 
+                coin_type: _, 
+                reserve_array_index: _,
+                borrowed_amount: _,
+                cumulative_borrow_rate: _,
+                market_value: _,
+                user_reward_manager_index: _
+            }  = vector::remove(&mut obligation.borrows, borrow_index);
+        };
+
+        forgive_amount
+    }
+
     public(friend) fun claim_rewards<P, T>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
@@ -551,6 +595,10 @@ module suilend::obligation {
 
     public fun is_liquidatable<P>(obligation: &Obligation<P>): bool {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
+    }
+
+     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
+        vector::length(&obligation.deposits) == 0
     }
 
     // === Private Functions ===

@@ -647,6 +647,18 @@ module suilend::reserve {
         balance::join(&mut balances.available_amount, liquidity);
     }
 
+    public(friend) fun forgive_debt<P, T>(
+        reserve: &mut Reserve<P>, 
+        forgive_amount: Decimal
+    ) {
+        reserve.borrowed_amount = saturating_sub(
+            reserve.borrowed_amount, 
+            forgive_amount
+        );
+
+        log_reserve_data(reserve);
+    }
+
     public(friend) fun deposit_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
