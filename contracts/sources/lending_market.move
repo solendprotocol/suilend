@@ -1977,7 +1977,7 @@ module suilend::lending_market {
 
     }
 
-        #[test]
+    #[test]
     public fun test_forgive_debt() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
