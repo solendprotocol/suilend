@@ -742,9 +742,11 @@ module suilend::reserve {
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
 
+        let id = object::new(test_scenario::ctx(&mut scenario));
+
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
-            lending_market_id: object::uid_to_inner(&object::new(test_scenario::ctx(&mut scenario))),
+            lending_market_id: object::uid_to_inner(&id),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new(default_reserve_config()),
@@ -771,6 +773,7 @@ module suilend::reserve {
         assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50), 0);
         assert!(ctoken_ratio(&reserve) == decimal::from(5), 0);
 
+        sui::test_utils::destroy(id);
         sui::test_utils::destroy(reserve);
         test_scenario::end(scenario);
     }
@@ -783,10 +786,11 @@ module suilend::reserve {
 
         let owner = @0x26;
         let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
 
         let reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
-            lending_market_id: object::uid_to_inner(&object::new(test_scenario::ctx(&mut scenario))),
+            lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new({
@@ -846,6 +850,7 @@ module suilend::reserve {
         assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50), 0);
         assert!(reserve.interest_last_update_timestamp_s == 1, 0);
 
+        sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(reserve);
 
@@ -1341,9 +1346,11 @@ module suilend::reserve {
         interest_last_update_timestamp_s: u64,
         ctx: &mut TxContext
     ): Reserve<P> {
+        let lending_market_id = object::new(ctx);
+
         let reserve = Reserve<P> {
             id: object::new(ctx),
-            lending_market_id: object::uid_to_inner(&object::new(ctx)),
+            lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
@@ -1388,6 +1395,8 @@ module suilend::reserve {
                 deposited_ctokens: balance::zero<CToken<P, T>>()
             }
         );
+
+        sui::test_utils::destroy(lending_market_id);
 
         reserve
     }
