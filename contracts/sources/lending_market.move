@@ -311,6 +311,7 @@ module suilend::lending_market {
         deposit: Coin<CToken<P, T>>,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         deposit_ctokens_into_obligation_by_id(
             lending_market, 
             reserve_array_index, 
@@ -569,6 +570,7 @@ module suilend::lending_market {
         is_deposit_reward: bool,
         ctx: &mut TxContext
     ): Coin<RewardType> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         claim_rewards_by_obligation_id(
             lending_market, 
             cap.obligation_id, 
@@ -595,6 +597,7 @@ module suilend::lending_market {
         deposit_reserve_id: u64,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let rewards = claim_rewards_by_obligation_id<P, RewardType>(
             lending_market, 
             obligation_id, 
@@ -789,6 +792,7 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -815,6 +819,7 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext
     ): Coin<RewardType> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -840,6 +845,7 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext
     ): Coin<RewardType> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -928,6 +934,7 @@ module suilend::lending_market {
         is_deposit_reward: bool,
         ctx: &mut TxContext
     ): Coin<RewardType> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_id
