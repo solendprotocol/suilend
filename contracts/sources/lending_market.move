@@ -221,6 +221,7 @@ module suilend::lending_market {
         deposit: Coin<T>,
         ctx: &mut TxContext
     ): Coin<CToken<P, T>> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
@@ -237,7 +238,7 @@ module suilend::lending_market {
         assert!(balance::value(&ctokens) > 0, ETooSmall);
 
         event::emit(MintEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             liquidity_amount: deposit_amount,
@@ -255,6 +256,7 @@ module suilend::lending_market {
         rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
         ctx: &mut TxContext
     ): Coin<T> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&ctokens) > 0, ETooSmall);
 
@@ -289,7 +291,7 @@ module suilend::lending_market {
         assert!(balance::value(&liquidity) > 0, ETooSmall);
 
         event::emit(RedeemEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             ctoken_amount,
@@ -328,6 +330,7 @@ module suilend::lending_market {
         amount: u64,
         ctx: &mut TxContext
     ): Coin<T> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(amount > 0, ETooSmall);
 
@@ -355,7 +358,7 @@ module suilend::lending_market {
         );
 
         event::emit(BorrowEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -374,6 +377,7 @@ module suilend::lending_market {
         amount: u64,
         ctx: &mut TxContext
     ): Coin<CToken<P, T>> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(amount > 0, ETooSmall);
 
@@ -389,7 +393,7 @@ module suilend::lending_market {
         obligation::withdraw<P>(obligation, reserve, clock, amount);
 
         event::emit(WithdrawEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -410,6 +414,7 @@ module suilend::lending_market {
         repay_coins: &mut Coin<Repay>, // mut because we probably won't use all of it
         ctx: &mut TxContext
     ): (Coin<CToken<P, Withdraw>>, RateLimiterExemption<P, Withdraw>) {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(repay_coins) > 0, ETooSmall);
 
@@ -449,7 +454,7 @@ module suilend::lending_market {
         let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
 
         event::emit(LiquidateEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             repay_reserve_id: object::id_address(repay_reserve),
             withdraw_reserve_id: object::id_address(withdraw_reserve),
             obligation_id: object::id_address(obligation),
@@ -475,6 +480,7 @@ module suilend::lending_market {
         max_repay_coins: &mut Coin<T>,
         ctx: &mut TxContext
     ) {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let obligation = object_table::borrow_mut(
@@ -497,7 +503,7 @@ module suilend::lending_market {
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), repay_amount);
 
         event::emit(RepayEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -514,6 +520,7 @@ module suilend::lending_market {
         clock: &Clock,
         max_forgive_amount: u64,
     ) {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let obligation = object_table::borrow_mut(
@@ -532,10 +539,10 @@ module suilend::lending_market {
             decimal::from(max_forgive_amount),
         );
 
-        reserve::forgive_debt<P, T>(reserve, forgive_amount);
+        reserve::forgive_debt<P>(reserve, forgive_amount);
 
         event::emit(ForgiveEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
@@ -799,6 +806,7 @@ module suilend::lending_market {
         deposit: Coin<CToken<P, T>>,
         _ctx: &mut TxContext
     ) {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
@@ -811,7 +819,7 @@ module suilend::lending_market {
         );
 
         event::emit(DepositEvent {
-            lending_market_id: object::id_address(lending_market),
+            lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
