@@ -12,10 +12,10 @@ module suilend::obligation {
         borrow_weight, 
         liquidation_bonus, 
         protocol_liquidation_fee,
-        isolated
+        isolated,
     };
     use sui::clock::{Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq, saturating_sub};
     use suilend::liquidity_mining::{Self, UserRewardManager, PoolRewardManager};
 
     #[test_only]
@@ -569,8 +569,55 @@ module suilend::obligation {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
-     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
+    public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
         vector::length(&obligation.deposits) == 0
+    }
+
+    // calculate the maximum amount that can be borrowed within an obligation
+    public(friend) fun max_borrow_amount<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+        floor(reserve::usd_to_token_amount_lower_bound(
+            reserve,
+            div(
+                saturating_sub(
+                    obligation.allowed_borrow_value_usd,
+                    obligation.weighted_borrowed_value_upper_bound_usd
+                ),
+                borrow_weight(config(reserve))
+            )
+        ))
+    }
+
+    // calculate the maximum amount that can be withdrawn from an obligation
+    public(friend) fun max_withdraw_amount<P>(
+        obligation: &Obligation<P>,
+        reserve: &Reserve<P>,
+    ): u64 {
+        let deposit_index = find_deposit_index(obligation, reserve);
+        assert!(deposit_index < vector::length(&obligation.deposits), EDepositNotFound);
+
+        let deposit = vector::borrow(&obligation.deposits, deposit_index);
+
+        if (open_ltv(config(reserve)) == decimal::from(0)) {
+            return deposit.deposited_ctoken_amount
+        };
+
+        let max_withdraw_value = div(
+            saturating_sub(
+                obligation.allowed_borrow_value_usd,
+                obligation.weighted_borrowed_value_upper_bound_usd
+            ),
+            open_ltv(config(reserve))
+        );
+
+        let max_withdraw_token_amount = reserve::usd_to_token_amount_upper_bound(
+            reserve,
+            max_withdraw_value
+        );
+
+        floor(div(
+            max_withdraw_token_amount,
+            reserve::ctoken_ratio(reserve)
+        ))
     }
 
     // === Private Functions ===
@@ -1276,6 +1323,44 @@ module suilend::obligation {
     }
 
     #[test]
+    public fun test_max_borrow() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+
+        let max_borrow = max_borrow_amount(&obligation, &usdc_reserve);
+        assert!(max_borrow == 25_000_000, 0);
+
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
     public fun test_borrow_happy() {
         use sui::test_scenario::{Self};
 
@@ -1389,6 +1474,50 @@ module suilend::obligation {
         sui::test_utils::destroy(clock);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    public fun test_max_withdraw() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 20 * 1_000_000);
+
+        // sui open ltv is 0.2
+        // allowed borrow value = 100 * 0.2 * 5 = 100
+        // weighted upper bound borrow value = 20 * 2 * 2 = 80
+        // => max withdraw amount should be 20
+        let amount = max_withdraw_amount<TEST_MARKET>(&obligation, &sui_reserve);
+        assert!(amount == 20 * 1_000_000_000, 0);
+
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
 
     #[test]
     public fun test_withdraw_happy() {
