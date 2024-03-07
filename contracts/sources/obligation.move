@@ -2286,4 +2286,45 @@ module suilend::obligation {
         sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    #[expected_failure(abort_code = EObligationIsNotForgivable)]
+    fun test_forgive_debt_fail() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            10 * 1_000_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            1_000_000
+        );
+
+        forgive<TEST_MARKET>(
+            &mut obligation,
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            decimal::from(1_000_000_000)
+        );
+
+        test_utils::destroy(reserves);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
 }

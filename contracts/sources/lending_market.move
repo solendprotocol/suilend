@@ -1892,4 +1892,153 @@ module suilend::lending_market {
         test_scenario::end(scenario);
 
     }
+
+    #[test]
+    public fun test_forgive_debt() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+        use suilend::decimal::{sub, eq};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
+            let bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: reserve_config::default_reserve_config(),
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // create obligation
+        let obligation_owner_cap = create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let coins = coin::mint_for_testing<TEST_USDC>(100 * 1_000_000, test_scenario::ctx(&mut scenario));
+        let ctokens = deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            coins,
+            test_scenario::ctx(&mut scenario)
+        );
+        deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            ctokens,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices)
+        );
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
+
+        let sui = borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            5 * 1_000_000_000,
+            test_scenario::ctx(&mut scenario)
+        );
+        test_utils::destroy(sui);
+
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 2, &clock); // $10
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
+
+        // liquidate the obligation
+        let sui = coin::mint_for_testing<TEST_SUI>(1 * 1_000_000_000, test_scenario::ctx(&mut scenario));
+        let (usdc, exemption) = liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
+            &mut lending_market,
+            obligation_id(&obligation_owner_cap),
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            &mut sui,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
+        let sui_reserve = reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        let old_reserve_borrowed_amount = reserve::borrowed_amount<LENDING_MARKET>(sui_reserve);
+        let old_borrowed_amount = obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation);
+
+        forgive<LENDING_MARKET, TEST_SUI>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            obligation_id(&obligation_owner_cap),
+            &clock,
+            1_000_000_000,
+        );
+
+        let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
+        let sui_reserve = reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        let reserve_borrowed_amount = reserve::borrowed_amount<LENDING_MARKET>(sui_reserve);
+        let borrowed_amount = obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation);
+
+        assert!(eq(sub(old_borrowed_amount, borrowed_amount), decimal::from(1_000_000_000)), 0);
+        assert!(eq(sub(old_reserve_borrowed_amount, reserve_borrowed_amount), decimal::from(1_000_000_000)), 0);
+
+        test_utils::destroy(usdc);
+        test_utils::destroy(sui);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
 }
