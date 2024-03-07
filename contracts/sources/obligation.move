@@ -35,6 +35,7 @@ module suilend::obligation {
     const EIsolatedAssetViolation: u64 = 4;
     const ETooManyDeposits: u64 = 5;
     const ETooManyBorrows: u64 = 6;
+    const EObligationIsNotForgivable: u64 = 7;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -502,6 +503,21 @@ module suilend::obligation {
         (final_withdraw_amount, final_settle_amount)
     }
 
+    public(friend) fun forgive<P>(
+        obligation: &mut Obligation<P>,
+        reserve: &mut Reserve<P>,
+        clock: &Clock,
+        max_forgive_amount: Decimal,
+    ): Decimal {
+        assert!(is_forgivable(obligation), EObligationIsNotForgivable);
+        repay<P>(
+            obligation, 
+            reserve, 
+            clock,
+            max_forgive_amount,
+        )
+    }
+
     public(friend) fun claim_rewards<P, T>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
@@ -551,6 +567,10 @@ module suilend::obligation {
 
     public fun is_liquidatable<P>(obligation: &Obligation<P>): bool {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
+    }
+
+     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
+        vector::length(&obligation.deposits) == 0
     }
 
     // === Private Functions ===
@@ -2260,6 +2280,47 @@ module suilend::obligation {
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(0), 2);
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent_u64(950), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(19), 4);
+
+        test_utils::destroy(reserves);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EObligationIsNotForgivable)]
+    fun test_forgive_debt_fail() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            10 * 1_000_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            1_000_000
+        );
+
+        forgive<TEST_MARKET>(
+            &mut obligation,
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            decimal::from(1_000_000_000)
+        );
 
         test_utils::destroy(reserves);
         clock::destroy_for_testing(clock);
