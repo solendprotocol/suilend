@@ -510,40 +510,12 @@ module suilend::obligation {
         max_forgive_amount: Decimal,
     ): Decimal {
         assert!(is_forgivable(obligation), EObligationIsNotForgivable);
-
-        let borrow_index = find_borrow_index(obligation, reserve);
-        assert!(borrow_index < vector::length(&obligation.borrows), EBorrowNotFound);
-        let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
-
-        let old_borrow_amount = borrow.borrowed_amount;
-        compound_debt(borrow, reserve);
-
-        let forgive_amount = min(max_forgive_amount, borrow.borrowed_amount);
-
-        let interest_diff = sub(borrow.borrowed_amount, old_borrow_amount);
-
-        borrow.borrowed_amount = sub(borrow.borrowed_amount, forgive_amount);
-
-        let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, borrow.user_reward_manager_index);
-        liquidity_mining::change_user_reward_manager_share(
-            reserve::borrows_pool_reward_manager_mut(reserve),
-            user_reward_manager,
-            liability_shares(borrow),
-            clock
-        );
-
-        if (eq(borrow.borrowed_amount, decimal::from(0))) {
-            let Borrow { 
-                coin_type: _, 
-                reserve_array_index: _,
-                borrowed_amount: _,
-                cumulative_borrow_rate: _,
-                market_value: _,
-                user_reward_manager_index: _
-            }  = vector::remove(&mut obligation.borrows, borrow_index);
-        };
-
-        forgive_amount
+        repay<P>(
+            obligation, 
+            reserve, 
+            clock,
+            max_forgive_amount,
+        )
     }
 
     public(friend) fun claim_rewards<P, T>(

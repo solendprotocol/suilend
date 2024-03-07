@@ -513,7 +513,6 @@ module suilend::lending_market {
         obligation_id: ID,
         clock: &Clock,
         max_forgive_amount: u64,
-        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -521,11 +520,10 @@ module suilend::lending_market {
             &mut lending_market.obligations, 
             obligation_id
         );
+        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-
-        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let forgive_amount = obligation::forgive<P>(
             obligation, 

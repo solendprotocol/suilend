@@ -647,7 +647,7 @@ module suilend::reserve {
         balance::join(&mut balances.available_amount, liquidity);
     }
 
-    public(friend) fun forgive_debt<P, T>(
+    public(friend) fun forgive_debt<P>(
         reserve: &mut Reserve<P>, 
         forgive_amount: Decimal
     ) {
