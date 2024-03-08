@@ -204,7 +204,7 @@ module suilend::lending_market {
     ): ObligationOwnerCap<P> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        let obligation = obligation::create_obligation<P>(ctx);
+        let obligation = obligation::create_obligation<P>(object::id(lending_market),ctx);
         let cap = ObligationOwnerCap<P> { 
             id: object::new(ctx), 
             obligation_id: object::id(&obligation) 
