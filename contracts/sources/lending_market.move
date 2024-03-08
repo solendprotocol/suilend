@@ -584,7 +584,6 @@ module suilend::lending_market {
 
     /// Permissionless function. Anyone can call this function to claim the rewards 
     /// and deposit into the same obligation. This is useful to "crank" rewards for users
-    /// so their rewards are automatically lent out to earn interest.
     public fun claim_rewards_and_deposit<P, RewardType>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
@@ -1811,6 +1810,9 @@ module suilend::lending_market {
         test_scenario::end(scenario);
     }
 
+    #[test_only]
+    const MILLISECONDS_IN_DAY: u64 = 86_400_000;
+
     #[test]
     fun test_liquidity_mining() {
         use sui::test_utils::{Self};
@@ -1821,6 +1823,7 @@ module suilend::lending_market {
         use std::type_name::{Self};
 
         let owner = @0x26;
+
         let scenario = test_scenario::begin(owner);
         let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
             let bag = bag::new(test_scenario::ctx(&mut scenario));
@@ -1863,7 +1866,7 @@ module suilend::lending_market {
             true,
             usdc_rewards,
             0,
-            10 * 1_000,
+            10 * MILLISECONDS_IN_DAY,
             &clock,
             test_scenario::ctx(&mut scenario)
         );
@@ -1874,13 +1877,13 @@ module suilend::lending_market {
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
             true,
             sui_rewards,
-            4_000,
-            14_000,
+            4 * MILLISECONDS_IN_DAY,
+            14 * MILLISECONDS_IN_DAY,
             &clock,
             test_scenario::ctx(&mut scenario)
         );
 
-        clock::set_for_testing(&mut clock, 1 * 1000);
+        clock::set_for_testing(&mut clock, 1 * MILLISECONDS_IN_DAY);
 
         // create obligation
         let obligation_owner_cap = create_obligation(
@@ -1905,7 +1908,7 @@ module suilend::lending_market {
             test_scenario::ctx(&mut scenario)
         );
 
-        clock::set_for_testing(&mut clock, 9 * 1000);
+        clock::set_for_testing(&mut clock, 9 * MILLISECONDS_IN_DAY);
         let claimed_usdc = claim_rewards<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             &obligation_owner_cap,

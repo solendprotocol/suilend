@@ -2,7 +2,7 @@
 
 [move]
 version = 0
-manifest_digest = "D9E257F9574FEC828D8D67E96EAA5AD6FC734B1026A6CF28AC94E672B10D0062"
+manifest_digest = "F751F8399FC486701C43A3FCFFDA077EFA472035CD6E8FC20584DFAF2F19B102"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 
 dependencies = [
@@ -38,3 +38,8 @@ source = { git = "https://github.com/0xripleys/wormhole.git", rev = "e1698d3c72b
 dependencies = [
   { name = "Sui" },
 ]
+
+[move.toolchain-version]
+compiler-version = "1.19.1"
+edition = "legacy"
+flavor = "sui"

@@ -21,6 +21,7 @@ module suilend::liquidity_mining {
 
     // === Constants ===
     const MAX_REWARDS: u64 = 5;
+    const MIN_REWARD_PERIOD_MS: u64 = 3_600_000;
 
     // === Friends ===
     friend suilend::lending_market;
@@ -113,7 +114,7 @@ module suilend::liquidity_mining {
         ctx: &mut TxContext
     ) {
         let start_time_ms = math::max(start_time_ms, clock::timestamp_ms(clock));
-        assert!(start_time_ms < end_time_ms, EInvalidTime);
+        assert!(end_time_ms - start_time_ms >= MIN_REWARD_PERIOD_MS, EInvalidTime);
 
         let pool_reward = PoolReward {
             id: object::new(ctx),
@@ -418,6 +419,9 @@ module suilend::liquidity_mining {
     #[test_only]
     struct SUI has drop {}
 
+    #[test_only]
+    const MILLISECONDS_IN_DAY: u64 = 86_400_000;
+
     #[test]
     fun test_pool_reward_manager_basic() {
         use sui::test_scenario::{Self};
@@ -432,13 +436,13 @@ module suilend::liquidity_mining {
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
         let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
         // at this point, user_reward_manager 1 has earned 50 dollars
-        clock::set_for_testing(&mut clock, 5 * 1000);
+        clock::set_for_testing(&mut clock, 5 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
@@ -448,7 +452,7 @@ module suilend::liquidity_mining {
         let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 400, &clock);
 
-        clock::set_for_testing(&mut clock, 10 * 1000);
+        clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 5 * 1_000_000, 0);
@@ -463,7 +467,7 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 250, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 250, &clock);
 
-        clock::set_for_testing(&mut clock, 20 * 1000);
+        clock::set_for_testing(&mut clock, 20 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
@@ -496,19 +500,19 @@ module suilend::liquidity_mining {
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
         let sui = balance::create_for_testing<SUI>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, sui, 10 * 1000, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, sui, 10 * MILLISECONDS_IN_DAY, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
         let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
-        clock::set_for_testing(&mut clock, 15 * 1000);
+        clock::set_for_testing(&mut clock, 15 * MILLISECONDS_IN_DAY);
         let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 100, &clock);
 
-        clock::set_for_testing(&mut clock, 30 * 1000);
+        clock::set_for_testing(&mut clock, 30 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 87_500_000, 0);
@@ -553,17 +557,17 @@ module suilend::liquidity_mining {
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
         let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
 
-        clock::set_for_testing(&mut clock, 10 * 1000);
+        clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
 
         let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
         assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
 
-        clock::set_for_testing(&mut clock, 15 * 1000);
+        clock::set_for_testing(&mut clock, 15 * MILLISECONDS_IN_DAY);
         let user_reward_manager_rewards = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
         assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
 
@@ -593,13 +597,13 @@ module suilend::liquidity_mining {
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
-        clock::set_for_testing(&mut clock, 10 * 1000);
+        clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
         let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 1, &clock);
 
-        clock::set_for_testing(&mut clock, 20 * 1000);
+        clock::set_for_testing(&mut clock, 20 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             // 50 usdc is unallocated since there was zero share from 0-10 seconds
@@ -631,13 +635,13 @@ module suilend::liquidity_mining {
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 1, &clock);
 
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
-        clock::set_for_testing(&mut clock, 10 * 1000);
+        clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
         let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
         change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 1, &clock);
 
-        clock::set_for_testing(&mut clock, 20 * 1000);
+        clock::set_for_testing(&mut clock, 20 * MILLISECONDS_IN_DAY);
         {
             let usdc = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
             assert!(balance::value(&usdc) == 75 * 1_000_000, 0);
@@ -674,12 +678,12 @@ module suilend::liquidity_mining {
         let i = 0;
         while (i < MAX_REWARDS) {
             let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-            add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+            add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
             i = i + 1;
         };
 
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * 1000, &clock, ctx);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(pool_reward_manager);
