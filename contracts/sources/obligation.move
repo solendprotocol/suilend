@@ -84,7 +84,7 @@ module suilend::obligation {
         closable: bool
     }
 
-    struct Deposit has drop, copy, store {
+    struct Deposit has store {
         coin_type: TypeName,
         reserve_array_index: u64,
         deposited_ctoken_amount: u64,
@@ -94,7 +94,7 @@ module suilend::obligation {
         attributed_borrow_value: Decimal
     }
 
-    struct Borrow has drop, copy, store {
+    struct Borrow has store {
         coin_type: TypeName,
         reserve_array_index: u64,
         borrowed_amount: Decimal,
@@ -108,8 +108,8 @@ module suilend::obligation {
         lending_market_id: address,
         obligation_id: address,
 
-        deposits: vector<Deposit>,
-        borrows: vector<Borrow>,
+        deposits: vector<DepositRecord>,
+        borrows: vector<BorrowRecord>,
 
         deposited_value_usd: Decimal,
         allowed_borrow_value_usd: Decimal,
@@ -123,6 +123,25 @@ module suilend::obligation {
 
         bad_debt_usd: Decimal,
         closable: bool
+    }
+
+    struct DepositRecord has drop, copy, store {
+        coin_type: TypeName,
+        reserve_array_index: u64,
+        deposited_ctoken_amount: u64,
+        market_value: Decimal,
+        user_reward_manager_index: u64,
+        /// unused
+        attributed_borrow_value: Decimal
+    }
+
+    struct BorrowRecord has drop, copy, store {
+        coin_type: TypeName,
+        reserve_array_index: u64,
+        borrowed_amount: Decimal,
+        cumulative_borrow_rate: Decimal,
+        market_value: Decimal,
+        user_reward_manager_index: u64
     }
 
     // === Public-Friend Functions
@@ -657,9 +676,45 @@ module suilend::obligation {
             lending_market_id: object::id_to_address(&obligation.lending_market_id),
             obligation_id: object::uid_to_address(&obligation.id),
 
-            deposits: obligation.deposits,
-            borrows: obligation.borrows,
+            deposits: {
+                let i = 0;
+                let deposits = vector::empty<DepositRecord>();
+                while (i < vector::length(&obligation.deposits)) {
+                    let deposit = vector::borrow(&obligation.deposits, i);
+                    vector::push_back(&mut deposits, DepositRecord {
+                        coin_type: deposit.coin_type,
+                        reserve_array_index: deposit.reserve_array_index,
+                        deposited_ctoken_amount: deposit.deposited_ctoken_amount,
+                        market_value: deposit.market_value,
+                        user_reward_manager_index: deposit.user_reward_manager_index,
+                        attributed_borrow_value: deposit.attributed_borrow_value
+                    });
 
+                    i = i + 1;
+                };
+
+                deposits
+            },
+            borrows: {
+                let i = 0;
+                let borrows = vector::empty<BorrowRecord>();
+                while (i < vector::length(&obligation.borrows)) {
+                    let borrow = vector::borrow(&obligation.borrows, i);
+                    vector::push_back(&mut borrows, BorrowRecord {
+                        coin_type: borrow.coin_type,
+                        reserve_array_index: borrow.reserve_array_index,
+                        borrowed_amount: borrow.borrowed_amount,
+                        cumulative_borrow_rate: borrow.cumulative_borrow_rate,
+                        market_value: borrow.market_value,
+                        user_reward_manager_index: borrow.user_reward_manager_index
+                    });
+
+                    i = i + 1;
+                };
+
+                borrows
+            
+            },
             deposited_value_usd: obligation.deposited_value_usd,
             allowed_borrow_value_usd: obligation.allowed_borrow_value_usd,
             unhealthy_borrow_value_usd: obligation.unhealthy_borrow_value_usd,
