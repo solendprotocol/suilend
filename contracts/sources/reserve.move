@@ -446,7 +446,7 @@ module suilend::reserve {
     }
 
     // === Public-Mutative Functions
-    public fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    public(friend) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
     }
 

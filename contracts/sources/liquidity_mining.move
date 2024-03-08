@@ -95,6 +95,17 @@ module suilend::liquidity_mining {
         object::id(pool_reward)
     }
 
+    public fun pool_reward(
+        pool_reward_manager: &PoolRewardManager, 
+        index: u64
+    ): &Option<PoolReward> {
+        vector::borrow(&pool_reward_manager.pool_rewards, index)
+    }
+
+    public fun end_time_ms(pool_reward: &PoolReward): u64 {
+        pool_reward.end_time_ms
+    }
+
     // === Public-Friend functions
     public(friend) fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
         PoolRewardManager {

@@ -29,6 +29,7 @@ module suilend::lending_market {
     const ETooSmall: u64 = 2;
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
     const EDuplicateReserve: u64 = 4;
+    const ERewardPeriodNotOver: u64 = 5;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -578,6 +579,7 @@ module suilend::lending_market {
             reserve_id, 
             reward_index, 
             is_deposit_reward, 
+            false,
             ctx
         )
     }
@@ -597,6 +599,7 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
         let rewards = claim_rewards_by_obligation_id<P, RewardType>(
             lending_market, 
             obligation_id, 
@@ -604,35 +607,43 @@ module suilend::lending_market {
             reward_reserve_id, 
             reward_index, 
             is_deposit_reward, 
+            true,
             ctx
         );
 
-        if (coin::value(&rewards) == 0) {
-            coin::destroy_zero(rewards);
-            return
+        let expected_ctokens = {
+            let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_id);
+            assert!(reserve::coin_type(deposit_reserve) == type_name::get<RewardType>(), EWrongType);
+
+            floor(
+                div(
+                    decimal::from(coin::value(&rewards)),
+                    reserve::ctoken_ratio(deposit_reserve)
+                )
+            )
         };
 
-        let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
-            lending_market, 
-            deposit_reserve_id, 
-            clock, 
-            rewards, 
-            ctx
-        );
+        if (expected_ctokens == 0) {
+            transfer::public_transfer(rewards, lending_market.fee_receiver);
+        }
+        else {
+            let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
+                lending_market, 
+                deposit_reserve_id, 
+                clock, 
+                rewards, 
+                ctx
+            );
 
-        if (coin::value(&ctokens) == 0) {
-            coin::destroy_zero(ctokens);
-            return
-        };
-
-        deposit_ctokens_into_obligation_by_id<P, RewardType>(
-            lending_market, 
-            deposit_reserve_id, 
-            obligation_id, 
-            clock, 
-            ctokens, 
-            ctx
-        );
+            deposit_ctokens_into_obligation_by_id<P, RewardType>(
+                lending_market, 
+                deposit_reserve_id, 
+                obligation_id, 
+                clock, 
+                ctokens, 
+                ctx
+            );
+        }
     }
 
 
@@ -931,6 +942,7 @@ module suilend::lending_market {
         reserve_id: u64,
         reward_index: u64,
         is_deposit_reward: bool,
+        fail_if_reward_period_not_over: bool,
         ctx: &mut TxContext
     ): Coin<RewardType> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
@@ -946,6 +958,11 @@ module suilend::lending_market {
             reserve::deposits_pool_reward_manager_mut(reserve)
         } else {
             reserve::borrows_pool_reward_manager_mut(reserve)
+        };
+
+        if (fail_if_reward_period_not_over) {
+            let pool_reward = option::borrow(liquidity_mining::pool_reward(pool_reward_manager, reward_index));
+            assert!(clock::timestamp_ms(clock) >= liquidity_mining::end_time_ms(pool_reward), ERewardPeriodNotOver);
         };
 
         let rewards = coin::from_balance(
@@ -1920,6 +1937,29 @@ module suilend::lending_market {
         );
         assert!(coin::value(&claimed_usdc) == 80 * 1_000_000, 0);
 
+        // this fails because but rewards period is not over
+        // claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
+        //     &mut lending_market,
+        //     obligation_owner_cap.obligation_id,
+        //     &clock,
+        //     *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+        //     1,
+        //     true,
+        //     *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+        //     test_scenario::ctx(&mut scenario)
+        // );
+
+        let remaining_sui_rewards = cancel_pool_reward<LENDING_MARKET, TEST_SUI>(
+            &owner_cap,
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            true,
+            1,
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+        assert!(coin::value(&remaining_sui_rewards) == 50 * 1_000_000_000, 0);
+
         claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             obligation_owner_cap.obligation_id,
@@ -1935,18 +1975,7 @@ module suilend::lending_market {
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
         ) == 50 * 1_000_000_000, 0);
 
-        let remaining_sui_rewards = cancel_pool_reward<LENDING_MARKET, TEST_SUI>(
-            &owner_cap,
-            &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
-            true,
-            1,
-            &clock,
-            test_scenario::ctx(&mut scenario)
-        );
-        assert!(coin::value(&remaining_sui_rewards) == 50 * 1_000_000_000, 0);
-
-        // nothing to claim!
+        // this does nothing
         claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             obligation_owner_cap.obligation_id,
