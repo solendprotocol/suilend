@@ -2,7 +2,7 @@
 
 [move]
 version = 0
-manifest_digest = "F751F8399FC486701C43A3FCFFDA077EFA472035CD6E8FC20584DFAF2F19B102"
+manifest_digest = "F3B565EF8DF22556320EC0BAB816DB76155FC4CF991390E6EA58DF86A74CAB3C"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 
 dependencies = [
@@ -16,7 +16,7 @@ source = { git = "https://github.com/MystenLabs/sui.git", rev = "framework/mainn
 
 [[move.package]]
 name = "Pyth"
-source = { git = "https://github.com/0xripleys/pyth-crosschain.git", rev = "7e72f2754ffdb9138ac2d9ba11a014e7638132f2", subdir = "target_chains/sui/contracts" }
+source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62", subdir = "target_chains/sui/contracts" }
 
 dependencies = [
   { name = "Sui" },
@@ -33,13 +33,8 @@ dependencies = [
 
 [[move.package]]
 name = "Wormhole"
-source = { git = "https://github.com/0xripleys/wormhole.git", rev = "e1698d3c72b15cdddd7da98ad43e151f83b72a0a", subdir = "sui/wormhole" }
+source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d3c72b15cdddd7da98ad43e151f83b72a0a", subdir = "sui/wormhole" }
 
 dependencies = [
   { name = "Sui" },
 ]
-
-[move.toolchain-version]
-compiler-version = "1.19.1"
-edition = "legacy"
-flavor = "sui"

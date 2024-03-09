@@ -10,11 +10,10 @@ rev = "framework/mainnet"
 override = true
  
 [dependencies.Pyth]
-git = "https://github.com/0xripleys/pyth-crosschain.git"
+git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
-rev = "7e72f2754ffdb9138ac2d9ba11a014e7638132f2"
+rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 
 [addresses]
 sui = "0x2"
 suilend = "0x0"
-pyth = "0x8d97f1cd6ac663735be08d1d2b6d02a159e711586461306ce60a2b7a6a565a9e"
