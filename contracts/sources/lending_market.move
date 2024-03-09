@@ -151,7 +151,7 @@ module suilend::lending_market {
     }
 
     struct ClaimRewardEvent has drop, copy {
-        lending_market: TypeName,
+        lending_market_id: address,
         reserve_id: address,
         obligation_id: address,
 
@@ -945,6 +945,7 @@ module suilend::lending_market {
         fail_if_reward_period_not_over: bool,
         ctx: &mut TxContext
     ): Coin<RewardType> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
@@ -978,7 +979,7 @@ module suilend::lending_market {
         let pool_reward_id = liquidity_mining::pool_reward_id(pool_reward_manager, reward_index);
 
         event::emit(ClaimRewardEvent {
-            lending_market: type_name::get<P>(),
+            lending_market_id,
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
 
