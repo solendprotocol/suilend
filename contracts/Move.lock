@@ -38,3 +38,8 @@ source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d
 dependencies = [
   { name = "Sui" },
 ]
+
+[move.toolchain-version]
+compiler-version = "1.19.1"
+edition = "legacy"
+flavor = "sui"
