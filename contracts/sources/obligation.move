@@ -664,10 +664,13 @@ module suilend::obligation {
             max_withdraw_value
         );
 
-        floor(div(
-            max_withdraw_token_amount,
-            reserve::ctoken_ratio(reserve)
-        ))
+        sui::math::min(
+            floor(div(
+                max_withdraw_token_amount,
+                reserve::ctoken_ratio(reserve)
+            )),
+            deposit.deposited_ctoken_amount
+        )
     }
 
     // === Private Functions ===
