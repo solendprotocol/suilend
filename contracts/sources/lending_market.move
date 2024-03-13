@@ -752,6 +752,14 @@ module suilend::lending_market {
     }
 
     // === Admin Functions ===
+    entry fun migrate<P>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION - 1, EIncorrectVersion);
+        lending_market.version = CURRENT_VERSION;
+    }
+
     public fun add_reserve<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 
