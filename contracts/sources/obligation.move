@@ -388,26 +388,26 @@ module suilend::obligation {
         // to make offchain accounting easier. any operation that requires price 
         // freshness (withdraw, borrow, liquidate) will refresh the obligation right before.
         if (le(interest_diff, repay_amount)) {
-            let diff = sub(repay_amount, interest_diff);
+            let diff = saturating_sub(repay_amount, interest_diff);
             let repay_value = reserve::market_value(reserve, diff);
             let repay_value_upper_bound = reserve::market_value_upper_bound(reserve, diff);
 
-            borrow.market_value = sub(borrow.market_value, repay_value);
-            obligation.unweighted_borrowed_value_usd = sub(
+            borrow.market_value = saturating_sub(borrow.market_value, repay_value);
+            obligation.unweighted_borrowed_value_usd = saturating_sub(
                 obligation.unweighted_borrowed_value_usd,
                 repay_value
             );
-            obligation.weighted_borrowed_value_usd = sub(
+            obligation.weighted_borrowed_value_usd = saturating_sub(
                 obligation.weighted_borrowed_value_usd,
                 mul(repay_value, borrow_weight(config(reserve)))
             );
-            obligation.weighted_borrowed_value_upper_bound_usd = sub(
+            obligation.weighted_borrowed_value_upper_bound_usd = saturating_sub(
                 obligation.weighted_borrowed_value_upper_bound_usd,
                 mul(repay_value_upper_bound, borrow_weight(config(reserve)))
             );
         }
         else {
-            let additional_borrow_amount = sub(interest_diff, repay_amount);
+            let additional_borrow_amount = saturating_sub(interest_diff, repay_amount);
             let additional_borrow_value = reserve::market_value(reserve, additional_borrow_amount);
             let additional_borrow_value_upper_bound = reserve::market_value_upper_bound(reserve, additional_borrow_amount);
 
