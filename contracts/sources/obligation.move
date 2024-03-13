@@ -1641,6 +1641,11 @@ module suilend::obligation {
         let amount = max_withdraw_amount<TEST_MARKET>(&obligation, &sui_reserve);
         assert!(amount == 20 * 1_000_000_000, 0);
 
+        deposit<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 100 * 1_000_000);
+
+        let amount = max_withdraw_amount<TEST_MARKET>(&obligation, &usdc_reserve);
+        assert!(amount == 100 * 1_000_000, 0);
+
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
         sui::test_utils::destroy(sui_reserve);
@@ -1845,6 +1850,49 @@ module suilend::obligation {
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(500), 2);
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent_u64(10_050), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from_percent_u64(20_100), 4);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_repay_regression() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 100 * 1_000_000);
+
+        clock::set_for_testing(&mut clock, 1000);
+        reserve::update_price_for_testing(
+            &mut usdc_reserve,
+            &clock, 
+            decimal::from(10), 
+            decimal::from(10)
+        );
+
+        reserve::compound_interest(&mut usdc_reserve, &clock);
+        let repay_amount = repay<TEST_MARKET>(
+            &mut obligation, 
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(100 * 1_000_000)
+        );
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
