@@ -427,7 +427,7 @@ module suilend::reserve {
                     reserve,
                     saturating_sub(
                         decimal::from(borrow_limit_usd(config(reserve))),
-                        market_value(reserve, reserve.borrowed_amount)
+                        market_value_upper_bound(reserve, reserve.borrowed_amount)
                     )
                 )
             )
