@@ -2,7 +2,7 @@
 
 [move]
 version = 0
-manifest_digest = "9ABA6D5EDE4824EA3F5996AA9113A0507683D86BF509A27607C62694F982415E"
+manifest_digest = "B1CC61796CEEE49D3024042324C80020F6C1F4670AACB56806C452CDFEAA081F"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 
 dependencies = [
@@ -38,8 +38,3 @@ source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d
 dependencies = [
   { name = "Sui" },
 ]
-
-[move.toolchain-version]
-compiler-version = "1.19.1"
-edition = "legacy"
-flavor = "sui"

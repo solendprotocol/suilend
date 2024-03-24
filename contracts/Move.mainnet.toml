@@ -1,7 +1,7 @@
 [package]
 name = "suilend"
 version = "0.0.1"
-published-at = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf"
+published-at = "0x6772fecce84a160a7687bf8546ea51d2748559551927762886468f97aff75a38"
 
 [dependencies.Sui]
 git = "https://github.com/MystenLabs/sui.git"
@@ -16,4 +16,5 @@ rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 
 [addresses]
 sui = "0x2"
-suilend = "0x0"
+# suilend = "0x0"
+suilend = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf"
