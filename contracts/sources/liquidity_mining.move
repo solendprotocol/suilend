@@ -291,7 +291,7 @@ module suilend::liquidity_mining {
 
             let pool_reward = option::borrow_mut(optional_pool_reward);
 
-            if (vector::length(&user_reward_manager.rewards) == i) {
+            while (vector::length(&user_reward_manager.rewards) <= i) {
                 vector::push_back(&mut user_reward_manager.rewards, option::none());
             };
 
@@ -567,6 +567,10 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 0); 
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
+
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
         add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
@@ -698,6 +702,73 @@ module suilend::liquidity_mining {
 
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(pool_reward_manager);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_pool_reward_manager_cancel_and_close_regression() {
+        use sui::test_scenario::{Self};
+        use sui::balance::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let clock = clock::create_for_testing(ctx);
+        clock::set_for_testing(&mut clock, 0); 
+
+        let pool_reward_manager = new_pool_reward_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(
+            &mut pool_reward_manager, 
+            usdc, 
+            20 * MILLISECONDS_IN_DAY, 
+            30 * MILLISECONDS_IN_DAY, 
+            &clock, 
+            ctx
+        );
+
+        let user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_1, 100, &clock);
+
+        clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
+
+        let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
+
+        clock::set_for_testing(&mut clock, 15 * MILLISECONDS_IN_DAY);
+        let user_reward_manager_rewards = claim_rewards<USDC>(&mut pool_reward_manager, &mut user_reward_manager_1, &clock, 0);
+        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
+
+        let dust_rewards = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&dust_rewards) == 0, 0);
+
+        clock::set_for_testing(&mut clock, 20 * MILLISECONDS_IN_DAY);
+
+        let user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(&mut pool_reward_manager, &mut user_reward_manager_2, 100, &clock);
+
+        clock::set_for_testing(&mut clock, 30 * MILLISECONDS_IN_DAY);
+        let user_reward_manager_rewards_2 = claim_rewards<USDC>(
+            &mut pool_reward_manager, 
+            &mut user_reward_manager_2, 
+            &clock, 
+            1
+        );
+        std::debug::print(&balance::value(&user_reward_manager_rewards_2));
+
+        assert!(balance::value(&user_reward_manager_rewards_2) == 50 * 1_000_000, 0);
+
+        sui::test_utils::destroy(unallocated_rewards);
+        sui::test_utils::destroy(user_reward_manager_rewards);
+        sui::test_utils::destroy(user_reward_manager_rewards_2);
+        sui::test_utils::destroy(dust_rewards);
+        sui::test_utils::destroy(clock);
+        sui::test_utils::destroy(pool_reward_manager);
+        sui::test_utils::destroy(user_reward_manager_1);
+        sui::test_utils::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 }
