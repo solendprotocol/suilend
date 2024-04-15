@@ -567,10 +567,6 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 0); 
 
         let pool_reward_manager = new_pool_reward_manager(ctx);
-
-        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
-        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
-
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
         add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
