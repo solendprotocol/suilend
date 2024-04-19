@@ -2,6 +2,7 @@ module suilend::lending_market {
     // === Imports ===
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
+    use std::ascii::{Self};
     use sui::event::{Self};
     use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min};
     use sui::object_table::{Self, ObjectTable};
@@ -34,7 +35,7 @@ module suilend::lending_market {
     const ECannotClaimReward: u64 = 6;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 1;
+    const CURRENT_VERSION: u64 = 2;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
@@ -957,7 +958,11 @@ module suilend::lending_market {
         let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        assert!(type_name::get<RewardType>() != type_name::get<SUILEND_SEASON_ONE_POINTS>(), ECannotClaimReward);
+        assert!(
+            type_name::borrow_string(&type_name::get<RewardType>()) != 
+            &ascii::string(b"0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN"), 
+            ECannotClaimReward
+        );
 
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
