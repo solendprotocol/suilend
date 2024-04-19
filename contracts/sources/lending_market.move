@@ -20,6 +20,7 @@ module suilend::lending_market {
     use std::option::{Self, Option};
     use suilend::liquidity_mining::{Self};
     use sui::package;
+    use suilend::suilend_season_one_points::SUILEND_SEASON_ONE_POINTS;
 
     // === Friends ===
     friend suilend::lending_market_registry;
@@ -30,6 +31,7 @@ module suilend::lending_market {
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
     const EDuplicateReserve: u64 = 4;
     const ERewardPeriodNotOver: u64 = 5;
+    const ECannotClaimReward: u64 = 6;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -954,6 +956,9 @@ module suilend::lending_market {
     ): Coin<RewardType> {
         let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        assert!(type_name::get<RewardType>() != type_name::get<SUILEND_SEASON_ONE_POINTS>(), ECannotClaimReward);
+
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_id
