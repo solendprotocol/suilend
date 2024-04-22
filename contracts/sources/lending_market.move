@@ -444,7 +444,6 @@ module suilend::lending_market {
             coin::value(repay_coins)
         );
 
-        assert!(withdraw_ctoken_amount > 0, ETooSmall);
         assert!(gt(required_repay_amount, decimal::from(0)), ETooSmall);
 
         let required_repay_coins = coin::split(repay_coins, ceil(required_repay_amount), ctx);
