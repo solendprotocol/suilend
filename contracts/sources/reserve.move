@@ -639,7 +639,10 @@ module suilend::reserve {
         reserve.available_amount = reserve.available_amount - liquidity_amount;
         reserve.ctoken_supply = reserve.ctoken_supply - balance::value(&ctokens);
 
-        assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
+        assert!(
+            reserve.available_amount >= MIN_AVAILABLE_AMOUNT && reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT, 
+            EMinAvailableAmountViolated
+        );
 
         log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
@@ -676,7 +679,10 @@ module suilend::reserve {
             EBorrowLimitExceeded
         );
 
-        assert!(reserve.available_amount >= MIN_AVAILABLE_AMOUNT, EMinAvailableAmountViolated);
+        assert!(
+            reserve.available_amount >= MIN_AVAILABLE_AMOUNT && reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT,
+            EMinAvailableAmountViolated
+        );
 
         log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
