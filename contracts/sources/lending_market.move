@@ -611,6 +611,18 @@ module suilend::lending_market {
             ctx
         );
 
+        let obligation = object_table::borrow(&lending_market.obligations, obligation_id);
+        if (gt(obligation::borrowed_amount<P, RewardType>(obligation), decimal::from(0))) {
+            repay<P, RewardType>(
+                lending_market,
+                deposit_reserve_id,
+                obligation_id,
+                clock,
+                &mut rewards,
+                ctx
+            );
+        };
+
         let expected_ctokens = {
             let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_id);
             assert!(reserve::coin_type(deposit_reserve) == type_name::get<RewardType>(), EWrongType);
@@ -1845,6 +1857,7 @@ module suilend::lending_market {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::reserve_config::{Self, default_reserve_config};
+        use suilend::mock_pyth::{Self};
 
         use std::type_name::{Self};
 
@@ -1934,6 +1947,32 @@ module suilend::lending_market {
             test_scenario::ctx(&mut scenario)
         );
 
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices)
+        );
+        refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices)
+        );
+        let sui = borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            1_000_000_000,
+            test_scenario::ctx(&mut scenario)
+        );
+
         clock::set_for_testing(&mut clock, 9 * MILLISECONDS_IN_DAY);
         let claimed_usdc = claim_rewards<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
@@ -1982,7 +2021,10 @@ module suilend::lending_market {
 
         assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
-        ) == 50 * 1_000_000_000, 0);
+        ) == 49 * 1_000_000_000, 0);
+        assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(
+            obligation(&lending_market, obligation_id(&obligation_owner_cap))
+        ) == decimal::from(0), 0);
 
         // this does nothing
         claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
@@ -1998,7 +2040,7 @@ module suilend::lending_market {
 
         assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
-        ) == 50 * 1_000_000_000, 0);
+        ) == 49 * 1_000_000_000, 0);
 
         let dust_sui_rewards = close_pool_reward<LENDING_MARKET, TEST_SUI>(
             &owner_cap,
@@ -2014,6 +2056,7 @@ module suilend::lending_market {
 
         test_utils::destroy(dust_sui_rewards);
         test_utils::destroy(remaining_sui_rewards);
+        test_utils::destroy(sui);
         test_utils::destroy(owner_cap);
         test_utils::destroy(obligation_owner_cap);
         test_utils::destroy(claimed_usdc);
