@@ -647,7 +647,7 @@ module suilend::obligation {
 
         let deposit = vector::borrow(&obligation.deposits, deposit_index);
 
-        if (open_ltv(config(reserve)) == decimal::from(0)) {
+        if (open_ltv(config(reserve)) == decimal::from(0) || vector::length(&obligation.borrows) == 0) {
             return deposit.deposited_ctoken_amount
         };
 
@@ -1632,6 +1632,10 @@ module suilend::obligation {
         );
 
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+
+        let amount = max_withdraw_amount<TEST_MARKET>(&obligation, &sui_reserve);
+        assert!(amount == 100 * 1_000_000_000, 0);
+
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 20 * 1_000_000);
 
         // sui open ltv is 0.2

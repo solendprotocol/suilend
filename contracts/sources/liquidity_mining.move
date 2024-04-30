@@ -345,8 +345,6 @@ module suilend::liquidity_mining {
         pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock,
     ): UserRewardManager {
-        update_pool_reward_manager(pool_reward_manager, clock);
-
         let user_reward_manager = UserRewardManager {
             pool_reward_manager_id: object::id(pool_reward_manager),
             share: 0,
