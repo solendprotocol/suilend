@@ -959,7 +959,7 @@ module suilend::lending_market {
 
         assert!(
             type_name::borrow_string(&type_name::get<RewardType>()) != 
-            &ascii::string(b"5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN"), 
+            &ascii::string(b"34fe4f3c9e450fed4d0a3c587ed842eec5313c30c3cc3c0841247c49425e246b::suilend_point::SUILEND_POINT"),
             ECannotClaimReward
         );
 
