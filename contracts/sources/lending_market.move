@@ -21,7 +21,6 @@ module suilend::lending_market {
     use std::option::{Self, Option};
     use suilend::liquidity_mining::{Self};
     use sui::package;
-    use suilend::suilend_season_one_points::SUILEND_SEASON_ONE_POINTS;
 
     // === Friends ===
     friend suilend::lending_market_registry;
@@ -960,7 +959,7 @@ module suilend::lending_market {
 
         assert!(
             type_name::borrow_string(&type_name::get<RewardType>()) != 
-            &ascii::string(b"0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN"), 
+            &ascii::string(b"5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN"), 
             ECannotClaimReward
         );
 
