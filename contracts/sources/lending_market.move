@@ -2,6 +2,7 @@ module suilend::lending_market {
     // === Imports ===
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
+    use std::ascii::{Self};
     use sui::event::{Self};
     use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min};
     use sui::object_table::{Self, ObjectTable};
@@ -30,9 +31,10 @@ module suilend::lending_market {
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
     const EDuplicateReserve: u64 = 4;
     const ERewardPeriodNotOver: u64 = 5;
+    const ECannotClaimReward: u64 = 6;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 1;
+    const CURRENT_VERSION: u64 = 2;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
@@ -954,6 +956,13 @@ module suilend::lending_market {
     ): Coin<RewardType> {
         let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        assert!(
+            type_name::borrow_string(&type_name::get<RewardType>()) != 
+            &ascii::string(b"34fe4f3c9e450fed4d0a3c587ed842eec5313c30c3cc3c0841247c49425e246b::suilend_point::SUILEND_POINT"),
+            ECannotClaimReward
+        );
+
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations, 
             obligation_id

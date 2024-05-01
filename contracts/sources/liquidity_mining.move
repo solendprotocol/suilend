@@ -20,7 +20,7 @@ module suilend::liquidity_mining {
     const EPoolRewardPeriodNotOver: u64 = 5;
 
     // === Constants ===
-    const MAX_REWARDS: u64 = 5;
+    const MAX_REWARDS: u64 = 50;
     const MIN_REWARD_PERIOD_MS: u64 = 3_600_000;
 
     // === Friends ===
