@@ -8,7 +8,10 @@ on:
 jobs:
   move-test:
     runs-on: ubuntu-latest
-    container: mysten/sui-tools:mainnet 
+    container: 
+      image: mysten/sui-tools:mainnet 
+      ports:
+        - 80
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
