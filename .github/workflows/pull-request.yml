@@ -16,5 +16,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
+      # bugfix: install git
+      - name: install git
+        run: apt-get install -y git
+
       - name: test
         run: cd contracts && sui move test
