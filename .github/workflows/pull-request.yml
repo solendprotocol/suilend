@@ -10,7 +10,7 @@ jobs:
     runs-on: mysten/sui-tools:mainnet
     steps:
       - name: Checkout repository
-      - uses: actions/checkout@v2
+        uses: actions/checkout@v2
 
       - name: test
         run: cd contracts && sui move test
