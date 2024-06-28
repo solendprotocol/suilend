@@ -412,6 +412,7 @@ module suilend::lending_market {
         };
 
         obligation::withdraw<P>(obligation, reserve, clock, amount);
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         event::emit(WithdrawEvent {
             lending_market_id,
@@ -453,6 +454,7 @@ module suilend::lending_market {
             clock,
             coin::value(repay_coins)
         );
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         assert!(gt(required_repay_amount, decimal::from(0)), ETooSmall);
 
@@ -518,9 +520,11 @@ module suilend::lending_market {
             clock,
             decimal::from(coin::value(max_repay_coins))
         );
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         let repay_coins = coin::split(max_repay_coins, ceil(repay_amount), ctx);
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), repay_amount);
+
 
         event::emit(RepayEvent {
             lending_market_id,
