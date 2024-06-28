@@ -588,6 +588,13 @@ module suilend::obligation {
         liquidity_mining::claim_rewards<T>(pool_reward_manager, user_reward_manager, clock, reward_index)
     }
 
+    public(friend) fun get_user_reward_manager_mut<P>(
+        obligation: &mut Obligation<P>,
+        user_reward_manager_index: u64
+    ): &mut UserRewardManager {
+        vector::borrow_mut(&mut obligation.user_reward_managers, user_reward_manager_index)
+    }
+
     // === Public-View Functions
     public fun deposited_ctoken_amount<P, T>(obligation: &Obligation<P>): u64 {
         let i = 0;
@@ -950,7 +957,7 @@ module suilend::obligation {
         i
     }
 
-    fun find_or_add_user_reward_manager<P>(
+    public(friend) fun find_or_add_user_reward_manager<P>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock

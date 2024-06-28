@@ -1,10 +1,12 @@
 module suilend::lending_market {
     // === Imports ===
+    use sui::sui::SUI;
     use sui::object::{Self, ID, UID};
+    use sui::dynamic_field as field;
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use std::ascii::{Self};
     use sui::event::{Self};
-    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min};
+    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min, saturating_sub};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
@@ -19,7 +21,7 @@ module suilend::lending_market {
     use std::type_name::{Self, TypeName};
     use std::vector::{Self};
     use std::option::{Self, Option};
-    use suilend::liquidity_mining::{Self};
+    use suilend::liquidity_mining::{Self, PoolRewardManager};
     use sui::package;
 
     // === Friends ===
@@ -36,6 +38,10 @@ module suilend::lending_market {
     // === Constants ===
     const CURRENT_VERSION: u64 = 3;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
+
+    // Custom Pool Reward Manager indices
+    const INCENTIVE_SUI_NET_TVL_INDEX: u64 = 0;
+    const NUM_INCENTIVES: u64 = 1;
 
     // === One time Witness ===
     struct LENDING_MARKET has drop {}
@@ -61,6 +67,8 @@ module suilend::lending_market {
         /// unused
         bad_debt_limit_usd: Decimal,
     }
+
+    struct CustomIncentivesKey has copy, drop, store { } 
 
     struct LendingMarketOwnerCap<phantom P> has key, store {
         id: UID,
@@ -404,6 +412,7 @@ module suilend::lending_market {
         };
 
         obligation::withdraw<P>(obligation, reserve, clock, amount);
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         event::emit(WithdrawEvent {
             lending_market_id,
@@ -445,6 +454,7 @@ module suilend::lending_market {
             clock,
             coin::value(repay_coins)
         );
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         assert!(gt(required_repay_amount, decimal::from(0)), ETooSmall);
 
@@ -510,9 +520,11 @@ module suilend::lending_market {
             clock,
             decimal::from(coin::value(max_repay_coins))
         );
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
 
         let repay_coins = coin::split(max_repay_coins, ceil(repay_amount), ctx);
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), repay_amount);
+
 
         event::emit(RepayEvent {
             lending_market_id,
@@ -925,7 +937,7 @@ module suilend::lending_market {
         obligation_id: ID,
         clock: &Clock,
         deposit: Coin<CToken<P, T>>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
@@ -953,6 +965,8 @@ module suilend::lending_market {
             clock,
             coin::value(&deposit)
         );
+
+        update_custom_incentives(&mut lending_market.id, obligation, clock, ctx);
         reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
     }
 
@@ -1018,6 +1032,56 @@ module suilend::lending_market {
         });
 
         rewards
+    }
+
+    fun get_or_add_pool_reward_managers(
+        lending_market_id: &mut UID,
+        ctx: &mut TxContext
+    ): &mut vector<PoolRewardManager> {
+        if (!field::exists_(lending_market_id, CustomIncentivesKey {})) {
+            field::add(lending_market_id, CustomIncentivesKey {}, vector::empty<PoolRewardManager>());
+        };
+
+        let pool_reward_managers: &mut vector<PoolRewardManager> = field::borrow_mut(
+            lending_market_id,
+            CustomIncentivesKey {}
+        );
+
+        while (vector::length(pool_reward_managers) < NUM_INCENTIVES) {
+            vector::push_back(pool_reward_managers, liquidity_mining::new_pool_reward_manager(ctx));
+        };
+
+        pool_reward_managers
+    }
+
+    fun update_custom_incentives<P>(
+        lending_market_id: &mut UID,
+        obligation: &mut Obligation<P>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        let pool_reward_managers = get_or_add_pool_reward_managers(lending_market_id, ctx);
+
+        // sui net tvl
+        let deposited_amount = obligation::deposited_ctoken_amount<P, SUI>(obligation);
+        let borrowed_amount = obligation::borrowed_amount<P, SUI>(obligation);
+        let net_tvl = floor(saturating_sub(decimal::from(deposited_amount), borrowed_amount));
+
+        let pool_reward_manager = vector::borrow_mut(pool_reward_managers, INCENTIVE_SUI_NET_TVL_INDEX);
+        let (index, _) = obligation::find_or_add_user_reward_manager(
+            obligation,
+            pool_reward_manager,
+            clock
+        );
+        let user_reward_manager = obligation::get_user_reward_manager_mut(obligation, index);
+
+        liquidity_mining::change_user_reward_manager_share(
+            pool_reward_manager,
+            user_reward_manager,
+            net_tvl,
+            clock
+        );
+
     }
 
     // === Test Functions ===
