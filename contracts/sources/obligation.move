@@ -16,7 +16,7 @@ module suilend::obligation {
         isolated,
     };
     use sui::clock::{Clock};
-    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq, saturating_sub};
+    use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq, saturating_sub, ceil};
     use suilend::liquidity_mining::{Self, UserRewardManager, PoolRewardManager};
 
     #[test_only]
@@ -102,6 +102,35 @@ module suilend::obligation {
         cumulative_borrow_rate: Decimal,
         market_value: Decimal,
         user_reward_manager_index: u64
+    }
+
+    // this should be a private struct but those don't exist yet
+    struct LiquidateInfo has drop {
+        /// total amount of ctokens withdrawn from obligation, including protocol fee
+        final_withdraw_amount: u64,
+        /// how much the liquidator has to repay
+        final_settle_amount: Decimal,
+        /// how much of final_withdraw_amount to deduct as a protocol fee
+        protocol_fee_amount: u64,
+        /// how much of the final_withdraw_amount is considered the liquidator's "bonus". This 
+        /// field is only used for logging purposes
+        liquidator_bonus_amount: u64
+    }
+
+    public(friend) fun final_withdraw_amount(info: &LiquidateInfo): u64 {
+        info.final_withdraw_amount
+    }
+
+    public(friend) fun final_settle_amount(info: &LiquidateInfo): Decimal {
+        info.final_settle_amount
+    }
+
+    public(friend) fun protocol_fee_amount(info: &LiquidateInfo): u64 {
+        info.protocol_fee_amount
+    }
+
+    public(friend) fun liquidator_bonus_amount(info: &LiquidateInfo): u64 {
+        info.liquidator_bonus_amount
     }
 
     // === Events ===
@@ -478,8 +507,8 @@ module suilend::obligation {
         withdraw_reserve_array_index: u64,
         clock: &Clock,
         repay_amount: u64,
-    ): (u64, Decimal) {
-        assert!(is_liquidatable(obligation), EObligationIsNotLiquidatable);
+    ): LiquidateInfo {
+        assert!(is_liquidatable(obligation) || is_closable(obligation), EObligationIsNotLiquidatable);
 
         let repay_reserve = vector::borrow(reserves, repay_reserve_array_index);
         let withdraw_reserve = vector::borrow(reserves, withdraw_reserve_array_index);
@@ -512,10 +541,18 @@ module suilend::obligation {
         };
 
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
-        let bonus = add(
-            liquidation_bonus(config(withdraw_reserve)),
-            protocol_liquidation_fee(config(withdraw_reserve))
-        );
+
+        let (liquidator_bonus, protocol_liquidation_fee) = if (is_liquidatable(obligation)) {
+            (
+                liquidation_bonus(config(withdraw_reserve)),
+                protocol_liquidation_fee(config(withdraw_reserve))
+            )
+        }
+        else { // closable
+            (decimal::from(0), decimal::from(0))
+        };
+
+        let bonus = add(liquidator_bonus, protocol_liquidation_fee);
 
         let withdraw_value = mul(
             repay_value, 
@@ -556,7 +593,27 @@ module suilend::obligation {
         );
 
         log_obligation_data(obligation);
-        (final_withdraw_amount, final_settle_amount)
+
+        LiquidateInfo {
+            final_withdraw_amount,
+            final_settle_amount,
+            protocol_fee_amount: {
+                let take_rate = div(
+                    protocol_liquidation_fee,
+                    add(decimal::from(1), bonus)
+                );
+
+                ceil(mul(take_rate, decimal::from(final_withdraw_amount)))
+            },
+            liquidator_bonus_amount: {
+                let bonus_rate = div(
+                    bonus,
+                    add(decimal::from(1), bonus)
+                );
+
+                ceil(mul(bonus_rate, decimal::from(final_withdraw_amount)))
+            }
+        }
     }
 
     public(friend) fun forgive<P>(
@@ -586,6 +643,10 @@ module suilend::obligation {
         let user_reward_manager = vector::borrow_mut(&mut obligation.user_reward_managers, user_reward_manager_index);
 
         liquidity_mining::claim_rewards<T>(pool_reward_manager, user_reward_manager, clock, reward_index)
+    }
+
+    public(friend) fun set_closability_status<P>(obligation: &mut Obligation<P>, closable: bool) {
+        obligation.closable = closable;
     }
 
     // === Public-View Functions
@@ -624,6 +685,10 @@ module suilend::obligation {
 
     public fun is_liquidatable<P>(obligation: &Obligation<P>): bool {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
+    }
+
+    public fun is_closable<P>(obligation: &Obligation<P>): bool {
+        obligation.closable
     }
 
     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
@@ -2311,7 +2376,7 @@ module suilend::obligation {
             &mut reserves,
             &clock
         );
-        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
+        let liquidate_info = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2319,8 +2384,10 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
-        assert!(withdraw_amount == 4_400_000_000, 0);
-        assert!(repay_amount == decimal::from(40 * 1_000_000), 1);
+        assert!(liquidate_info.final_withdraw_amount == 4_400_000_000, 0);
+        assert!(liquidate_info.final_settle_amount == decimal::from(40 * 1_000_000), 1);
+        assert!(liquidate_info.protocol_fee_amount == 0, 2);
+        assert!(liquidate_info.liquidator_bonus_amount == 400_000_000, 2);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2430,7 +2497,7 @@ module suilend::obligation {
             &clock
         );
 
-        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
+        let liquidate_info = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2438,8 +2505,11 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
-        assert!(withdraw_amount == 1_100_000_000, 0);
-        assert!(repay_amount == decimal::from(10 * 1_000_000), 1);
+
+        assert!(liquidate_info.final_withdraw_amount == 1_100_000_000, 0);
+        assert!(liquidate_info.final_settle_amount == decimal::from(10 * 1_000_000), 1);
+        assert!(liquidate_info.protocol_fee_amount == 0, 2);
+        assert!(liquidate_info.liquidator_bonus_amount == 100_000_000, 2);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2528,7 +2598,7 @@ module suilend::obligation {
             &mut reserves,
             &clock
         );
-        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
+        let liquidate_info = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             1,
@@ -2536,8 +2606,10 @@ module suilend::obligation {
             &clock,
             1_000_000_000
         );
-        assert!(withdraw_amount == 110_000_000, 0);
-        assert!(repay_amount == decimal::from(1_000_000), 1);
+        assert!(liquidate_info.final_withdraw_amount == 110_000_000, 0);
+        assert!(liquidate_info.final_settle_amount == decimal::from(1_000_000), 1);
+        assert!(liquidate_info.protocol_fee_amount == 0, 2);
+        assert!(liquidate_info.liquidator_bonus_amount == 10_000_000, 2);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2605,6 +2677,8 @@ module suilend::obligation {
             10 * 1_000_000
         );
 
+        set_closability_status(&mut obligation, true);
+
         let usdc_reserve = get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves);
         let config = {
             let builder = reserve_config::from(
@@ -2643,7 +2717,7 @@ module suilend::obligation {
             &clock
         );
 
-        let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
+        let liquidate_info = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             2,
@@ -2651,8 +2725,10 @@ module suilend::obligation {
             &clock,
             100 * 1_000_000_000
         );
-        assert!(withdraw_amount == 550_000, 0);
-        assert!(repay_amount == decimal::from(500_000), 1);
+        assert!(liquidate_info.final_withdraw_amount == 550_000, 0);
+        assert!(liquidate_info.final_settle_amount == decimal::from(500_000), 1);
+        assert!(liquidate_info.protocol_fee_amount == 0, 2);
+        assert!(liquidate_info.liquidator_bonus_amount == 50_000, 2);
 
         assert!(vector::length(&obligation.deposits) == 1, 0);
 
@@ -2685,6 +2761,102 @@ module suilend::obligation {
         assert!(obligation.unhealthy_borrow_value_usd == decimal::from(0), 2);
         assert!(obligation.unweighted_borrowed_value_usd == decimal::from_percent_u64(950), 3);
         assert!(obligation.weighted_borrowed_value_usd == decimal::from(19), 4);
+
+        test_utils::destroy(reserves);
+        sui::test_utils::destroy(lending_market_id);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_liquidate_closable_obligation() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            100 * 1_000_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            50 * 1_000_000
+        );
+
+        let config = {
+            let builder = reserve_config::from(
+                reserve::config(get_reserve<TEST_MARKET, TEST_SUI>(&reserves)), 
+                test_scenario::ctx(&mut scenario)
+            );
+            reserve_config::set_liquidation_bonus_bps(&mut builder, 1000);
+            reserve_config::set_max_liquidation_bonus_bps(&mut builder, 1000);
+            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+        };
+
+        reserve::update_reserve_config(
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves), 
+            config
+        );
+
+        set_closability_status<TEST_MARKET>(&mut obligation, true);
+
+        refresh<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            &clock
+        );
+        let liquidate_info = liquidate<TEST_MARKET>(
+            &mut obligation,
+            &mut reserves,
+            1,
+            0,
+            &clock,
+            100 * 1_000_000_000
+        );
+
+        assert!(liquidate_info.final_withdraw_amount == 2 * 1_000_000_000, 0);
+        assert!(liquidate_info.final_settle_amount == decimal::from(20 * 1_000_000), 1);
+        assert!(liquidate_info.protocol_fee_amount == 0, 2);
+        assert!(liquidate_info.liquidator_bonus_amount == 0, 2);
+
+        assert!(vector::length(&obligation.deposits) == 1, 0);
+
+        // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
+        let sui_deposit = find_deposit(&obligation, get_reserve<TEST_MARKET, TEST_SUI>(&reserves));
+        assert!(sui_deposit.deposited_ctoken_amount == 98 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(980), 4);
+
+        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, sui_deposit.user_reward_manager_index);
+        assert!(liquidity_mining::shares(user_reward_manager) == 98 * 1_000_000_000, 5);
+
+        assert!(vector::length(&obligation.borrows) == 1, 0);
+
+        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(30 * 1_000_000), 1);
+        assert!(usdc_borrow.market_value == decimal::from(30), 3);
+
+        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, usdc_borrow.user_reward_manager_index);
+        assert!(liquidity_mining::shares(user_reward_manager) == 30 * 1_000_000 / 2, 5);
+
+        assert!(obligation.deposited_value_usd == decimal::from(980), 0);
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(196), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(490), 2);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(30), 3);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(60), 4);
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
