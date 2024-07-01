@@ -2017,6 +2017,18 @@ module suilend::lending_market {
         assert!(borrowed_amount == sub(old_borrowed_amount, decimal::from(1_000_000_000)), 0);
         assert!(deposited_amount == old_deposited_amount - 10 * 1_000_000, 0);
 
+        // unclose obligation
+        set_obligation_closability_status<LENDING_MARKET>(
+            &owner_cap,
+            &mut lending_market,
+            obligation_id(&obligation_owner_cap),
+            false 
+        );
+
+
+        let obligation = obligation(&lending_market, obligation_id(&obligation_owner_cap));
+        assert!(!obligation::is_closable(obligation), 0);
+
         test_utils::destroy(sui);
         test_utils::destroy(usdc);
         test_utils::destroy(obligation_owner_cap);
