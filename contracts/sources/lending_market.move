@@ -437,7 +437,7 @@ module suilend::lending_market {
         );
         obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
-        let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
+        let liquidate_info = obligation::liquidate<P>(
             obligation, 
             &mut lending_market.reserves,
             repay_reserve_array_index,
@@ -445,6 +445,11 @@ module suilend::lending_market {
             clock,
             coin::value(repay_coins)
         );
+
+        let withdraw_ctoken_amount = obligation::final_withdraw_amount(&liquidate_info);
+        let required_repay_amount = obligation::final_settle_amount(&liquidate_info);
+        let protocol_fee_amount = obligation::protocol_fee_amount(&liquidate_info);
+        let liquidator_bonus_amount = obligation::liquidator_bonus_amount(&liquidate_info);
 
         assert!(gt(required_repay_amount, decimal::from(0)), ETooSmall);
 
@@ -459,8 +464,9 @@ module suilend::lending_market {
 
         let withdraw_reserve = vector::borrow_mut(&mut lending_market.reserves, withdraw_reserve_array_index);
         assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
+
         let ctokens = reserve::withdraw_ctokens<P, Withdraw>(withdraw_reserve, withdraw_ctoken_amount);
-        let (protocol_fee_amount, liquidator_bonus_amount) = reserve::deduct_liquidation_fee<P, Withdraw>(withdraw_reserve, &mut ctokens);
+        reserve::add_ctoken_fee<P, Withdraw>(withdraw_reserve, balance::split(&mut ctokens, protocol_fee_amount));
         
         let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
         let withdraw_reserve = vector::borrow(&lending_market.reserves, withdraw_reserve_array_index);
@@ -810,6 +816,18 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::update_reserve_config<P>(reserve, config);
+    }
+
+    public fun set_obligation_closability_status<P>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        obligation_id: ID,
+        closable: bool
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(&mut lending_market.obligations, obligation_id);
+        obligation::set_closability_status<P>(obligation, closable);
     }
 
     public fun add_pool_reward<P, RewardType>(
