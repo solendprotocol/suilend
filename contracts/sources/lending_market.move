@@ -661,6 +661,11 @@ module suilend::lending_market {
 
 
     // === Public-View Functions ===
+
+    public fun reserves<P>(lending_market: &LendingMarket<P>): &vector<Reserve<P>> {
+        &lending_market.reserves
+    }
+
     fun max_borrow_amount<P>(
         rate_limiter: RateLimiter,
         obligation: &Obligation<P>, 
