@@ -746,7 +746,7 @@ module suilend::lending_market {
     }
 
     // slow function. use sparingly.
-    fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
+    public fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
         let i = 0;
         while (i < vector::length(&lending_market.reserves)) {
             let reserve = vector::borrow(&lending_market.reserves, i);
