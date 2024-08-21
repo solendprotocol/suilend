@@ -1129,11 +1129,9 @@ module suilend::lending_market {
     }
 
     #[test_only]
-    public fun new_args(initial_deposit: u64): ReserveArgs {
-        use suilend::reserve_config::{Self};
-
+    public fun new_args(initial_deposit: u64, config: ReserveConfig): ReserveArgs {
         ReserveArgs {
-            config: reserve_config::default_reserve_config(),
+            config,
             initial_deposit,
         }
     }
