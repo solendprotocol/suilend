@@ -760,7 +760,7 @@ module suilend::lending_market {
         i
     }
 
-    fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
+    public fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
         let i = reserve_array_index<P, T>(lending_market);
         vector::borrow(&lending_market.reserves, i)
     }
