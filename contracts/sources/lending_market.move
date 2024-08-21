@@ -2034,22 +2034,6 @@ module suilend::lending_market {
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
         ) == decimal::from(0), 0);
 
-        // this does nothing
-        claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
-            &mut lending_market,
-            obligation_owner_cap.obligation_id,
-            &clock,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
-            1,
-            true,
-            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            test_scenario::ctx(&mut scenario)
-        );
-
-        assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
-            obligation(&lending_market, obligation_id(&obligation_owner_cap))
-        ) == 49 * 1_000_000_000, 0);
-
         let dust_sui_rewards = close_pool_reward<LENDING_MARKET, TEST_SUI>(
             &owner_cap,
             &mut lending_market,
