@@ -375,6 +375,7 @@ module suilend::lending_market {
             origination_fee_amount,
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(receive_balance, ctx)
     }
 
@@ -414,6 +415,8 @@ module suilend::lending_market {
         });
 
         let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
+
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(ctoken_balance, ctx)
     }
 
@@ -478,6 +481,8 @@ module suilend::lending_market {
             liquidator_bonus_amount
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+
         let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
         (coin::from_balance(ctokens, ctx), exemption)
     }
@@ -522,6 +527,7 @@ module suilend::lending_market {
             liquidity_amount: ceil(repay_amount),
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }
 
     public fun forgive<P, T>(
@@ -954,6 +960,8 @@ module suilend::lending_market {
             coin::value(&deposit)
         );
         reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
+
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }
 
     fun claim_rewards_by_obligation_id<P, RewardType>(
