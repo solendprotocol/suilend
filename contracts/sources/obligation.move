@@ -4,6 +4,7 @@ module suilend::obligation {
     use sui::object::{Self, UID, ID};
     use sui::balance::{Balance};
     use std::vector::{Self};
+    use sui::vec_map::{Self};
     use sui::event::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
@@ -680,7 +681,109 @@ module suilend::obligation {
         )
     }
 
+    public(friend) fun zero_out_rewards_if_looped<P>(
+        obligation: &mut Obligation<P>, 
+        reserves: &mut vector<Reserve<P>>,
+        clock: &Clock
+    ) {
+        if (is_looped(obligation)) {
+            zero_out_rewards(obligation, reserves, clock);
+        };
+    }
+
     // === Private Functions ===
+    fun is_looped<P>(obligation: &Obligation<P>): bool {
+        let usdc_reserve_array_index = 1;
+        let usdt_reserve_array_index = 2;
+
+        let i = 0;
+        while (i < vector::length(&obligation.borrows)) {
+            let borrow = vector::borrow(&obligation.borrows, i);
+
+            let deposit_index = find_deposit_index_by_reserve_array_index(
+                obligation, 
+                borrow.reserve_array_index
+            );
+
+            if (deposit_index < vector::length(&obligation.deposits)) {
+                return true
+            };
+
+            // special case for usdc/usdt looping
+            if (borrow.reserve_array_index == usdc_reserve_array_index 
+                || borrow.reserve_array_index == usdt_reserve_array_index) {
+                let usdc_deposit_index = find_deposit_index_by_reserve_array_index(
+                    obligation, 
+                    usdc_reserve_array_index
+                );
+                let usdt_deposit_index = find_deposit_index_by_reserve_array_index(
+                    obligation, 
+                    usdt_reserve_array_index
+                );
+
+                if (usdc_deposit_index < vector::length(&obligation.deposits) 
+                    || usdt_deposit_index < vector::length(&obligation.deposits)) {
+                    return true
+                };
+                
+            };
+
+            i = i + 1;
+        };
+
+        false
+    }
+
+    fun zero_out_rewards<P>(
+        obligation: &mut Obligation<P>, 
+        reserves: &mut vector<Reserve<P>>, 
+        clock: &Clock
+    ) {
+        {
+            let i = 0;
+            while (i < vector::length(&obligation.deposits)) {
+                let deposit = vector::borrow(&obligation.deposits, i);
+                let reserve = vector::borrow_mut(reserves, deposit.reserve_array_index);
+
+                let user_reward_manager = vector::borrow_mut(
+                    &mut obligation.user_reward_managers, 
+                    deposit.user_reward_manager_index
+                );
+
+                liquidity_mining::change_user_reward_manager_share(
+                    reserve::deposits_pool_reward_manager_mut(reserve),
+                    user_reward_manager,
+                    0,
+                    clock
+                );
+
+                i = i + 1;
+            };
+        };
+
+        {
+            let i = 0;
+            while (i < vector::length(&obligation.borrows)) {
+                let borrow = vector::borrow(&obligation.borrows, i);
+                let reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
+
+                let user_reward_manager = vector::borrow_mut(
+                    &mut obligation.user_reward_managers, 
+                    borrow.user_reward_manager_index
+                );
+
+                liquidity_mining::change_user_reward_manager_share(
+                    reserve::borrows_pool_reward_manager_mut(reserve),
+                    user_reward_manager,
+                    0,
+                    clock
+                );
+
+                i = i + 1;
+            };
+        };
+    } 
+
     fun log_obligation_data<P>(obligation: &Obligation<P>) {
         event::emit(ObligationDataEvent {
             lending_market_id: object::id_to_address(&obligation.lending_market_id),
@@ -829,6 +932,23 @@ module suilend::obligation {
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
             if (deposit.reserve_array_index == reserve::array_index(reserve)) {
+                return i
+            };
+
+            i = i + 1;
+        };
+
+        i
+    }
+
+    fun find_deposit_index_by_reserve_array_index<P>(
+        obligation: &Obligation<P>,
+        reserve_array_index: u64,
+    ): u64 {
+        let i = 0;
+        while (i < vector::length(&obligation.deposits)) {
+            let deposit = vector::borrow(&obligation.deposits, i);
+            if (deposit.reserve_array_index == reserve_array_index) {
                 return i
             };
 
@@ -2728,6 +2848,140 @@ module suilend::obligation {
             &clock,
             decimal::from(1_000_000_000)
         );
+
+        test_utils::destroy(reserves);
+        sui::test_utils::destroy(lending_market_id);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_is_looped() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(
+            object::uid_to_inner(&lending_market_id), 
+            test_scenario::ctx(&mut scenario)
+        );
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            100 * 1_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            1_000_000_000
+        );
+
+        assert!(!is_looped(&obligation), 0);
+
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
+            &clock,
+            1_000_000
+        );
+
+        assert!(is_looped(&obligation), 0);
+
+        repay<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
+            &clock,
+            decimal::from(1_000_000)
+        );
+
+        assert!(!is_looped(&obligation), 0);
+
+        vector::push_back(&mut obligation.borrows, Borrow {
+            coin_type: type_name::get<TEST_USDC>(),
+            reserve_array_index: 2,
+            borrowed_amount: decimal::from(1_000_000),
+            cumulative_borrow_rate: decimal::from_percent(100),
+            market_value: decimal::from(1),
+            user_reward_manager_index: 0,
+        });
+
+        assert!(is_looped(&obligation), 0);
+
+        test_utils::destroy(reserves);
+        sui::test_utils::destroy(lending_market_id);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_zero_out_rewards_if_looped() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(
+            object::uid_to_inner(&lending_market_id), 
+            test_scenario::ctx(&mut scenario)
+        );
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            100 * 1_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            1_000_000_000
+        );
+
+        // 1. shouldn't do anything
+        zero_out_rewards_if_looped(&mut obligation, &mut reserves, &clock);
+
+        let i = 0;
+        while (i < vector::length(&obligation.user_reward_managers)) {
+            let user_reward_manager = vector::borrow(&obligation.user_reward_managers, i);
+            assert!(liquidity_mining::shares(user_reward_manager) != 0, 0);
+            i = i + 1;
+        };
+
+        // actually loop
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
+            &clock,
+            1_000_000
+        );
+
+        zero_out_rewards_if_looped(&mut obligation, &mut reserves, &clock);
+
+        let i = 0;
+        while (i < vector::length(&obligation.user_reward_managers)) {
+            let user_reward_manager = vector::borrow(&obligation.user_reward_managers, i);
+            assert!(liquidity_mining::shares(user_reward_manager) == 0, 0);
+            i = i + 1;
+        };
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
