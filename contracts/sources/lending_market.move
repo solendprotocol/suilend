@@ -1039,6 +1039,11 @@ module suilend::lending_market {
     }
 
     #[test_only]
+    public fun reserves_mut_for_testing<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
+        &mut lending_market.reserves
+    }
+
+    #[test_only]
     use sui::test_scenario::{Self, Scenario};
 
     #[test]
