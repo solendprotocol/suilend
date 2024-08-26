@@ -34,7 +34,7 @@ module suilend::lending_market {
     const ECannotClaimReward: u64 = 6;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 3;
+    const CURRENT_VERSION: u64 = 4;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
