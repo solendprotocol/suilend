@@ -710,22 +710,24 @@ module suilend::obligation {
             };
 
             // special case for usdc/usdt looping
-            if (borrow.reserve_array_index == usdc_reserve_array_index 
-                || borrow.reserve_array_index == usdt_reserve_array_index) {
-                let usdc_deposit_index = find_deposit_index_by_reserve_array_index(
-                    obligation, 
-                    usdc_reserve_array_index
-                );
+            if (borrow.reserve_array_index == usdc_reserve_array_index) {
                 let usdt_deposit_index = find_deposit_index_by_reserve_array_index(
                     obligation, 
                     usdt_reserve_array_index
                 );
-
-                if (usdc_deposit_index < vector::length(&obligation.deposits) 
-                    || usdt_deposit_index < vector::length(&obligation.deposits)) {
+                if (usdt_deposit_index < vector::length(&obligation.deposits)) {
                     return true
                 };
-                
+            };
+
+            if (borrow.reserve_array_index == usdt_reserve_array_index) {
+                let usdc_deposit_index = find_deposit_index_by_reserve_array_index(
+                    obligation, 
+                    usdc_reserve_array_index
+                );
+                if (usdc_deposit_index < vector::length(&obligation.deposits)) {
+                    return true
+                };
             };
 
             i = i + 1;
