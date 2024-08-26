@@ -353,6 +353,7 @@ module suilend::lending_market {
 
         if (amount == U64_MAX) {
             amount = max_borrow_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
+            assert!(amount > 0, ETooSmall);
         };
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
