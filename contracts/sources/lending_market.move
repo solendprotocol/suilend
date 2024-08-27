@@ -34,7 +34,7 @@ module suilend::lending_market {
     const ECannotClaimReward: u64 = 6;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 3;
+    const CURRENT_VERSION: u64 = 4;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
@@ -353,6 +353,7 @@ module suilend::lending_market {
 
         if (amount == U64_MAX) {
             amount = max_borrow_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
+            assert!(amount > 0, ETooSmall);
         };
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
@@ -375,6 +376,7 @@ module suilend::lending_market {
             origination_fee_amount,
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(receive_balance, ctx)
     }
 
@@ -414,6 +416,8 @@ module suilend::lending_market {
         });
 
         let ctoken_balance = reserve::withdraw_ctokens<P, T>(reserve, amount);
+
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(ctoken_balance, ctx)
     }
 
@@ -478,6 +482,8 @@ module suilend::lending_market {
             liquidator_bonus_amount
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+
         let exemption = RateLimiterExemption<P, Withdraw> { amount: balance::value(&ctokens) };
         (coin::from_balance(ctokens, ctx), exemption)
     }
@@ -522,6 +528,7 @@ module suilend::lending_market {
             liquidity_amount: ceil(repay_amount),
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }
 
     public fun forgive<P, T>(
@@ -954,6 +961,8 @@ module suilend::lending_market {
             coin::value(&deposit)
         );
         reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
+
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }
 
     fun claim_rewards_by_obligation_id<P, RewardType>(
@@ -2033,22 +2042,6 @@ module suilend::lending_market {
         assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(
             obligation(&lending_market, obligation_id(&obligation_owner_cap))
         ) == decimal::from(0), 0);
-
-        // this does nothing
-        claim_rewards_and_deposit<LENDING_MARKET, TEST_SUI>(
-            &mut lending_market,
-            obligation_owner_cap.obligation_id,
-            &clock,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
-            1,
-            true,
-            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            test_scenario::ctx(&mut scenario)
-        );
-
-        assert!(obligation::deposited_ctoken_amount<LENDING_MARKET, TEST_SUI>(
-            obligation(&lending_market, obligation_id(&obligation_owner_cap))
-        ) == 49 * 1_000_000_000, 0);
 
         let dust_sui_rewards = close_pool_reward<LENDING_MARKET, TEST_SUI>(
             &owner_cap,
