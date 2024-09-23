@@ -50,6 +50,33 @@ module suilend::test_sui {
     }
 }
 
+#[test_only]
+module suilend::test_regulated_coin {
+    use sui::coin::{Self, TreasuryCap, CoinMetadata, DenyCapV2};
+    use std::vector::{Self};
+    use std::option::{Self};
+    use sui::tx_context::{TxContext};
+
+    struct TEST_REGULATED_COIN has drop {}
+
+    #[test_only]
+    public fun create_currency(ctx: &mut TxContext): (
+        TreasuryCap<TEST_REGULATED_COIN>, 
+        DenyCapV2<TEST_REGULATED_COIN>, 
+        CoinMetadata<TEST_REGULATED_COIN>, 
+    ) {
+        coin::create_regulated_currency_v2(
+            TEST_REGULATED_COIN {}, 
+            9, 
+            vector::empty(),
+            vector::empty(),
+            vector::empty(),
+            option::none(),
+            true,
+            ctx
+        )
+    }
+}
 
 #[test_only]
 module suilend::mock_metadata {
@@ -57,6 +84,7 @@ module suilend::mock_metadata {
     use sui::tx_context::{TxContext};
     use suilend::test_usdc::{TEST_USDC, Self};
     use suilend::test_sui::{TEST_SUI, Self};
+    use suilend::test_regulated_coin::{TEST_REGULATED_COIN, Self};
     use std::type_name::{Self};
     use sui::coin::{CoinMetadata};
     use sui::test_utils::{Self};
@@ -70,12 +98,16 @@ module suilend::mock_metadata {
 
         let (test_usdc_cap, test_usdc_metadata) = test_usdc::create_currency(ctx);
         let (test_sui_cap, test_sui_metadata) = test_sui::create_currency(ctx);
+        let (test_regulated_coin_cap, deny_cap, test_regulated_coin_metadata) = test_regulated_coin::create_currency(ctx);
 
         test_utils::destroy(test_usdc_cap);
         test_utils::destroy(test_sui_cap);
+        test_utils::destroy(test_regulated_coin_cap);
+        test_utils::destroy(deny_cap);
 
         bag::add(&mut bag, type_name::get<TEST_USDC>(), test_usdc_metadata);
         bag::add(&mut bag, type_name::get<TEST_SUI>(), test_sui_metadata);
+        bag::add(&mut bag, type_name::get<TEST_REGULATED_COIN>(), test_regulated_coin_metadata);
 
         Metadata {
             metadata: bag

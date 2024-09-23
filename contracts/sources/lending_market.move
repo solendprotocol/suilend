@@ -2475,4 +2475,43 @@ module suilend::lending_market {
         test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    fun create_reserve_regulated_coin() {
+        use suilend::test_regulated_coin::{TEST_REGULATED_COIN};
+        use suilend::reserve_config::{Self};
+        use sui::test_utils::{Self};
+        use suilend::mock_pyth::{Self};
+        use suilend::mock_metadata::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let metadata = mock_metadata::init_metadata(test_scenario::ctx(&mut scenario));
+
+        let (owner_cap, lending_market) = create_lending_market<LENDING_MARKET>(
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let prices = mock_pyth::init_state(test_scenario::ctx(&mut scenario));
+        mock_pyth::register<TEST_REGULATED_COIN>(&mut prices, test_scenario::ctx(&mut scenario));
+
+        add_reserve<LENDING_MARKET, TEST_REGULATED_COIN>(
+            &owner_cap,
+            &mut lending_market,
+            mock_pyth::get_price_obj<TEST_REGULATED_COIN>(&prices),
+            reserve_config::default_reserve_config(),
+            mock_metadata::get<TEST_REGULATED_COIN>(&metadata),
+            &clock,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(metadata);
+        test_scenario::end(scenario);
+    }
 }
