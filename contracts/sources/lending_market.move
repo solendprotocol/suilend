@@ -162,6 +162,33 @@ module suilend::lending_market {
         coin_type: TypeName,
         liquidity_amount: u64,
     }
+    
+    struct AddRewardEvent has drop, copy {
+        lending_market_id: address,
+        pool_reward_manager_id: address,
+        reserve_id: address,
+        is_deposit_reward: bool,
+        reward_amount: u64,
+        coin_type: TypeName,
+    }
+    
+    struct CancelRewardEvent has drop, copy {
+        lending_market_id: address,
+        pool_reward_manager_id: address,
+        reserve_id: address,
+        is_deposit_reward: bool,
+        unallocated_rewards: u64,
+        coin_type: TypeName,
+    }
+    
+    struct CloseRewardEvent has drop, copy {
+        lending_market_id: address,
+        pool_reward_manager_id: address,
+        reserve_id: address,
+        is_deposit_reward: bool,
+        unallocated_rewards: u64,
+        coin_type: TypeName,
+    }
 
     // === Public-Mutative Functions ===
     public(friend) fun create_lending_market<P>(ctx: &mut TxContext): (
@@ -831,6 +858,9 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        let lending_market_id = object::id_address(lending_market);
+        let reward_amount = coin::value(&rewards);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -846,6 +876,15 @@ module suilend::lending_market {
             clock,
             ctx
         );
+
+        event::emit(AddRewardEvent {
+            lending_market_id,
+            pool_reward_manager_id: object::id_address(pool_reward_manager),
+            reserve_id: object::id_address(reserve),
+            is_deposit_reward,
+            reward_amount,
+            coin_type: type_name::get<RewardType>(),
+        });
     }
 
     public fun cancel_pool_reward<P, RewardType>(
@@ -858,6 +897,8 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<RewardType> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        let lending_market_id = object::id_address(lending_market);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -870,6 +911,15 @@ module suilend::lending_market {
             reward_index, 
             clock
         );
+
+        event::emit(CancelRewardEvent {
+            lending_market_id,
+            pool_reward_manager_id: object::id_address(pool_reward_manager),
+            reserve_id: object::id_address(reserve),
+            is_deposit_reward,
+            unallocated_rewards: balance::value(&unallocated_rewards),
+            coin_type: type_name::get<RewardType>(),
+        });
 
         coin::from_balance(unallocated_rewards, ctx)
     }
@@ -884,6 +934,8 @@ module suilend::lending_market {
         ctx: &mut TxContext
     ): Coin<RewardType> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        let lending_market_id = object::id_address(lending_market);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         let pool_reward_manager = if (is_deposit_reward) {
             reserve::deposits_pool_reward_manager_mut(reserve)
@@ -896,6 +948,15 @@ module suilend::lending_market {
             reward_index, 
             clock
         );
+
+        event::emit(CloseRewardEvent {
+            lending_market_id,
+            pool_reward_manager_id: object::id_address(pool_reward_manager),
+            reserve_id: object::id_address(reserve),
+            is_deposit_reward,
+            unallocated_rewards: balance::value(&unallocated_rewards),
+            coin_type: type_name::get<RewardType>(),
+        });
 
         coin::from_balance(unallocated_rewards, ctx)
     }
