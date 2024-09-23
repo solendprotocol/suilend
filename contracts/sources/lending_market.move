@@ -818,6 +818,21 @@ module suilend::lending_market {
 
         reserve::update_reserve_config<P>(reserve, config);
     }
+    
+    public fun change_reserve_price_feed<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        price_info_obj: &PriceInfoObject,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+    }
 
     public fun add_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>, 
@@ -2473,6 +2488,89 @@ module suilend::lending_market {
         test_utils::destroy(clock);
         test_utils::destroy(prices);
         test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_change_pyth_price_feed() {
+        use sui::test_utils::{Self, assert_eq};
+        use sui::test_scenario::ctx;
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
+            let bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_borrow_weight_bps(&mut builder, 20_000);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // change the price feed as admin
+        let new_price_info_obj = mock_pyth::new_price_info_obj(3_u8, ctx(&mut scenario));
+
+        let array_idx = *bag::borrow(&type_to_index, type_name::get<TEST_USDC>());
+
+        change_reserve_price_feed<LENDING_MARKET, TEST_USDC>(
+            &owner_cap,
+            &mut lending_market,
+            array_idx,
+            &new_price_info_obj,
+            &clock,
+        );
+
+        // TODO: assert changes
+        let reserve_ref = reserve<LENDING_MARKET, TEST_USDC>(&lending_market);
+        let price_id = pyth::price_info::get_price_identifier(
+            &pyth::price_info::get_price_info_from_price_info_object(&new_price_info_obj)
+        );
+
+        assert_eq(*reserve::price_identifier(reserve_ref), price_id);
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_utils::destroy(new_price_info_obj);
         test_scenario::end(scenario);
     }
 }
