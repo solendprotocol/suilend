@@ -1,5 +1,6 @@
 module suilend::obligation {
     // === Imports ===
+    use std::option::{Self, Option, some, none};
     use std::type_name::{TypeName, Self};
     use sui::object::{Self, UID, ID};
     use sui::balance::{Balance};
@@ -693,13 +694,29 @@ module suilend::obligation {
 
     // === Private Functions ===
     fun is_looped<P>(obligation: &Obligation<P>): bool {
-        let stable_reserve_array_indices = vector[1, 2, 5];
+        let stable_reserve_array_indices = vector[
+            1, 2, 5
+        ];
+
+        // The vector stable_reserve_array_indices maps to disabled_pairings_map
+        // by corresponding indices of each element
+        // stable_reserve_index --> pairings disabled
+        let disabled_pairings_map = vector[
+            vector[2, 5], // 1 --> [2, 5]
+            vector[1, 5], // 2 --> [1, 5]
+            vector[1, 2], // 5 --> [1, 2]
+        ];
 
         let i = 0;
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
 
-            let is_borrow_looped = is_borrow_looped(obligation, borrow, &stable_reserve_array_indices);
+            let is_borrow_looped = is_borrow_looped(
+                obligation,
+                borrow,
+                &stable_reserve_array_indices,
+                &disabled_pairings_map,
+            );
 
             if (is_borrow_looped) {
                 return true
@@ -715,6 +732,7 @@ module suilend::obligation {
         obligation: &Obligation<P>,
         borrow: &Borrow,
         stable_reserve_array_indices: &vector<u64>,
+        disabled_pairings_map: &vector<vector<u64>>,
     ): bool {
         // Check if borrow-deposit reserve match
         let deposit_index = find_deposit_index_by_reserve_array_index(
@@ -727,14 +745,15 @@ module suilend::obligation {
         };
 
         // Check if it's a stable being borrowed
-        let is_stable_borrow = is_stable_borrow(borrow, stable_reserve_array_indices);
+        let stable_borrow_idx = stable_borrow_idx(borrow, stable_reserve_array_indices);
 
-        if (is_stable_borrow) {
-            let stable_count = vector::length(stable_reserve_array_indices);
+        if (option::is_some(&stable_borrow_idx)) {
+            let disabled_pairs = vector::borrow(disabled_pairings_map, *option::borrow(&stable_borrow_idx));
+            let pair_count = vector::length(disabled_pairs);
             let i = 0;
 
-            while (i < stable_count) {
-                let stable_reserve_array_index = *vector::borrow(stable_reserve_array_indices, i);
+            while (i < pair_count) {
+                let stable_reserve_array_index = *vector::borrow(disabled_pairs, i);
 
                 let stable_deposit_index = find_deposit_index_by_reserve_array_index(
                     obligation, 
@@ -746,28 +765,27 @@ module suilend::obligation {
             
                 i = i +1;
             };
-
         };
 
         return false
     }
 
-    fun is_stable_borrow(
+    fun stable_borrow_idx(
         borrow: &Borrow,
         stable_reserve_array_indices: &vector<u64>,
-    ): bool {
+    ): Option<u64> {
         let stable_count = vector::length(stable_reserve_array_indices);
         let i = 0;
 
         while (i < stable_count) {
             let stable_idx = *vector::borrow(stable_reserve_array_indices, i);
             if (borrow.reserve_array_index == stable_idx) {
-                return true
+                return some(i)
             };
             i = i +1;
         };
 
-        return false
+        return none()
     }
 
     fun zero_out_rewards<P>(
