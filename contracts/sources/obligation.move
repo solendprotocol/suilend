@@ -694,13 +694,13 @@ module suilend::obligation {
 
     // === Private Functions ===
     fun is_looped<P>(obligation: &Obligation<P>): bool {
-        let stable_reserve_array_indices = vector[
+        let target_reserve_array_indices = vector[
             1, 2, 5
         ];
 
-        // The vector stable_reserve_array_indices maps to disabled_pairings_map
+        // The vector target_reserve_array_indices maps to disabled_pairings_map
         // by corresponding indices of each element
-        // stable_reserve_index --> pairings disabled
+        // target_reserve_index --> pairings disabled
         let disabled_pairings_map = vector[
             vector[2, 5], // 1 --> [2, 5]
             vector[1, 5], // 2 --> [1, 5]
@@ -714,7 +714,7 @@ module suilend::obligation {
             let is_borrow_looped = is_borrow_looped(
                 obligation,
                 borrow,
-                &stable_reserve_array_indices,
+                &target_reserve_array_indices,
                 &disabled_pairings_map,
             );
 
@@ -728,10 +728,11 @@ module suilend::obligation {
         false
     }
     
+    // Checks if a given `Borrow` object is looped
     fun is_borrow_looped<P>(
         obligation: &Obligation<P>,
         borrow: &Borrow,
-        stable_reserve_array_indices: &vector<u64>,
+        target_reserve_array_indices: &vector<u64>,
         disabled_pairings_map: &vector<vector<u64>>,
     ): bool {
         // Check if borrow-deposit reserve match
@@ -744,22 +745,24 @@ module suilend::obligation {
             return true
         };
 
-        // Check if it's a stable being borrowed
-        let stable_borrow_idx = stable_borrow_idx(borrow, stable_reserve_array_indices);
+        // Check if it's a target reserve being borrowed
+        let target_borrow_idx = target_borrow_idx(borrow, target_reserve_array_indices);
 
-        if (option::is_some(&stable_borrow_idx)) {
-            let disabled_pairs = vector::borrow(disabled_pairings_map, *option::borrow(&stable_borrow_idx));
+        // If the borrowing is over a targetted reserve
+        // we check if the deposit reserve is a disabled pair
+        if (option::is_some(&target_borrow_idx)) {
+            let disabled_pairs = vector::borrow(disabled_pairings_map, *option::borrow(&target_borrow_idx));
             let pair_count = vector::length(disabled_pairs);
             let i = 0;
 
             while (i < pair_count) {
-                let stable_reserve_array_index = *vector::borrow(disabled_pairs, i);
+                let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
 
-                let stable_deposit_index = find_deposit_index_by_reserve_array_index(
+                let deposit_index = find_deposit_index_by_reserve_array_index(
                     obligation, 
-                    stable_reserve_array_index
+                    disabled_reserve_array_index
                 );
-                if (stable_deposit_index < vector::length(&obligation.deposits)) {
+                if (deposit_index < vector::length(&obligation.deposits)) {
                     return true
                 };
             
@@ -770,15 +773,17 @@ module suilend::obligation {
         return false
     }
 
-    fun stable_borrow_idx(
+    // Checks if it's borrowing a target reserve and if so returns the
+    // index of the such reserve in the `target_reserve_array_indices` vector
+    fun target_borrow_idx(
         borrow: &Borrow,
-        stable_reserve_array_indices: &vector<u64>,
+        target_reserve_array_indices: &vector<u64>,
     ): Option<u64> {
-        let stable_count = vector::length(stable_reserve_array_indices);
+        let stable_count = vector::length(target_reserve_array_indices);
         let i = 0;
 
         while (i < stable_count) {
-            let stable_idx = *vector::borrow(stable_reserve_array_indices, i);
+            let stable_idx = *vector::borrow(target_reserve_array_indices, i);
             if (borrow.reserve_array_index == stable_idx) {
                 return some(i)
             };
