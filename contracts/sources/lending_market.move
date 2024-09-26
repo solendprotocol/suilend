@@ -668,6 +668,11 @@ module suilend::lending_market {
 
 
     // === Public-View Functions ===
+
+    public fun reserves<P>(lending_market: &LendingMarket<P>): &vector<Reserve<P>> {
+        &lending_market.reserves
+    }
+
     fun max_borrow_amount<P>(
         rate_limiter: RateLimiter,
         obligation: &Obligation<P>, 
@@ -748,7 +753,7 @@ module suilend::lending_market {
     }
 
     // slow function. use sparingly.
-    fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
+    public fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
         let i = 0;
         while (i < vector::length(&lending_market.reserves)) {
             let reserve = vector::borrow(&lending_market.reserves, i);
@@ -1043,6 +1048,11 @@ module suilend::lending_market {
     }
 
     #[test_only]
+    public fun reserves_mut_for_testing<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
+        &mut lending_market.reserves
+    }
+
+    #[test_only]
     use sui::test_scenario::{Self, Scenario};
 
     #[test]
@@ -1133,7 +1143,34 @@ module suilend::lending_market {
     }
 
     #[test_only]
-    fun setup(reserve_args: Bag, scenario: &mut Scenario): State {
+    public fun new_args(initial_deposit: u64, config: ReserveConfig): ReserveArgs {
+        ReserveArgs {
+            config,
+            initial_deposit,
+        }
+    }
+
+    #[test_only]
+    public fun destruct_state(state: State): (
+        Clock,
+        LendingMarketOwnerCap<LENDING_MARKET>,
+        LendingMarket<LENDING_MARKET>,
+        PriceState,
+        Bag
+    ) {
+        let State {
+            clock,
+            owner_cap,
+            lending_market,
+            prices,
+            type_to_index,
+        } = state;
+
+        (clock, owner_cap, lending_market, prices, type_to_index)
+    }
+    
+    #[test_only]
+    public fun setup(reserve_args: Bag, scenario: &mut Scenario): State {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::reserve_config::{Self};

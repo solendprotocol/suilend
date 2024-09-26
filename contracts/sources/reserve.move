@@ -802,6 +802,21 @@ module suilend::reserve {
         price_identifier::from_byte_vec(v)
     }
 
+    #[test_only]
+    public fun burn_ctokens_for_testing<P, T>(
+        reserve: &mut Reserve<P>, 
+        ctokens: Balance<CToken<P, T>>
+    ) {
+        reserve.ctoken_supply = reserve.ctoken_supply - balance::value(&ctokens);
+
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+
+        balance::decrease_supply(&mut balances.ctoken_supply, ctokens);
+    }
+
     #[test]
     fun test_accessors() {
         use suilend::test_usdc::{TEST_USDC};
