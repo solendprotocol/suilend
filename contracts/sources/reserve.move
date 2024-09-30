@@ -755,13 +755,8 @@ module suilend::reserve {
         price_info_obj: &PriceInfoObject,
         clock: &Clock,
     ){
-        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
-        assert!(option::is_some(&price_decimal), EInvalidPrice);
-
-        reserve.price = option::extract(&mut price_decimal);
-        reserve.smoothed_price = smoothed_price_decimal;
+        let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         reserve.price_identifier = price_identifier;
-        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
     // === Private Functions ===
