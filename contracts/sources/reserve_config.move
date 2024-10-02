@@ -66,7 +66,7 @@ module suilend::reserve_config {
     struct EmodeConfig has store {
         // Corresponding to the deposited coin type
         reserve_array_indices: vector<u64>,
-        correlated_pairs: vector<EModeData>
+        emode_pairs: vector<EModeData>
     }
 
     struct EModeData has store, copy, drop {
@@ -121,98 +121,6 @@ module suilend::reserve_config {
 
         validate_reserve_config(&config);
         config
-    }
-
-    public(friend) fun set_emode_for_pair(
-        reserve_config: &mut ReserveConfig,
-        reserve_array_index: u64,
-        open_ltv_pct: u8,
-        close_ltv_pct: u8,
-    ) {
-        let has_emode_field = bag::contains(&reserve_config.additional_fields, EModeKey {});
-
-        if (!has_emode_field) {
-            bag::add(
-                &mut reserve_config.additional_fields,
-                EModeKey {},
-                EmodeConfig {
-                    reserve_array_indices: vector::empty(),
-                    correlated_pairs: vector::empty(),
-                },
-            )
-        };
-
-        let emode_config: &mut EmodeConfig = bag::borrow_mut(&mut reserve_config.additional_fields, EModeKey {});
-
-        // Check if there is already emode parameters for the reserve_array_index
-        let pair_idx = get_pair_idx(emode_config, reserve_array_index);
-
-        if (is_none(&pair_idx)) {
-            vector::push_back(&mut emode_config.reserve_array_indices, reserve_array_index);
-            vector::push_back(&mut emode_config.correlated_pairs, EModeData {
-                reserve_array_index,
-                open_ltv_pct,
-                close_ltv_pct,
-            });
-        } else {
-            let pair_idx = destroy_some(pair_idx);
-            let emode_data = vector::borrow_mut(&mut emode_config.correlated_pairs, pair_idx);
-            emode_data.open_ltv_pct = open_ltv_pct;
-            emode_data.close_ltv_pct = close_ltv_pct;
-        };
-    }
-
-    public fun get_emode_config(
-        reserve_config: &ReserveConfig,
-    ): &EmodeConfig {
-        bag::borrow(&reserve_config.additional_fields, EModeKey {})
-    }
-    
-    public fun has_emode_config(
-        reserve_config: &ReserveConfig,
-    ): bool {
-        bag::contains(&reserve_config.additional_fields, EModeKey {})
-    }
-    
-    fun get_pair_idx(
-        emode_config: &EmodeConfig,
-        reserve_array_index: u64,
-    ): Option<u64> {
-        // Check if there is already emode parameters for the reserve_array_index
-        let i = vector::length(&emode_config.reserve_array_indices);
-        let pair_idx = none();
-
-        while (i > 0) {
-            let idx = vector::borrow(&emode_config.reserve_array_indices, i - 1);
-
-            if (idx == &reserve_array_index) {
-                fill(&mut pair_idx, *idx);
-            };
-
-            i = i - 1;
-        };
-
-        pair_idx
-    }
-    
-    public(friend) fun is_correlated(
-        emode_config: &EmodeConfig,
-        reserve_array_index: u64,
-    ): bool {
-        // Check if there is already emode parameters for the reserve_array_index
-        let i = vector::length(&emode_config.reserve_array_indices);
-
-        while (i > 0) {
-            let idx = vector::borrow(&emode_config.reserve_array_indices, i - 1);
-
-            if (idx == &reserve_array_index) {
-                return true
-            };
-
-            i = i - 1;
-        };
-
-        false
     }
 
     fun validate_reserve_config(config: &ReserveConfig) {
@@ -316,17 +224,6 @@ module suilend::reserve_config {
         decimal::from_bps(config.spread_fee_bps)
     }
 
-    // TODO
-    // public fun open_ltv_emode(config: &ReserveConfig): Decimal {
-    //     decimal::from_percent(
-    //         get_emode_config(config).open_ltv_pct
-    //     )
-    // }
-
-    // public fun close_ltv_emode(config: &ReserveConfig): Decimal {x
-    //     decimal::from_percent(config.close_ltv_pct)
-    // }
-
     public fun calculate_apr(config: &ReserveConfig, cur_util: Decimal): Decimal {
         assert!(le(cur_util, decimal::from(1)), EInvalidUtil);
 
@@ -397,7 +294,7 @@ module suilend::reserve_config {
                 EModeKey {},
             );
 
-            let EmodeConfig { reserve_array_indices: _, correlated_pairs: _ } = emode_config;
+            let EmodeConfig { reserve_array_indices: _, emode_pairs: _ } = emode_config;
         };
 
         bag::destroy_empty(additional_fields);
@@ -538,6 +435,98 @@ module suilend::reserve_config {
         config
     }
 
+
+    // === eMode Package Functions ==
+
+    public(friend) fun set_emode_for_pair(
+        reserve_config: &mut ReserveConfig,
+        reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
+    ) {
+        let has_emode_field = bag::contains(&reserve_config.additional_fields, EModeKey {});
+
+        if (!has_emode_field) {
+            bag::add(
+                &mut reserve_config.additional_fields,
+                EModeKey {},
+                EmodeConfig {
+                    reserve_array_indices: vector::empty(),
+                    emode_pairs: vector::empty(),
+                },
+            )
+        };
+
+        let emode_config: &mut EmodeConfig = bag::borrow_mut(&mut reserve_config.additional_fields, EModeKey {});
+
+        // Check if there is already emode parameters for the reserve_array_index
+        let pair_idx = get_pair_idx(emode_config, reserve_array_index);
+
+        if (is_none(&pair_idx)) {
+            vector::push_back(&mut emode_config.reserve_array_indices, reserve_array_index);
+            vector::push_back(&mut emode_config.emode_pairs, EModeData {
+                reserve_array_index,
+                open_ltv_pct,
+                close_ltv_pct,
+            });
+        } else {
+            let pair_idx = destroy_some(pair_idx);
+            let emode_data = vector::borrow_mut(&mut emode_config.emode_pairs, pair_idx);
+            emode_data.open_ltv_pct = open_ltv_pct;
+            emode_data.close_ltv_pct = close_ltv_pct;
+        };
+    }
+
+    public(friend) fun get_emode_config(
+        reserve_config: &ReserveConfig,
+    ): &EmodeConfig {
+        bag::borrow(&reserve_config.additional_fields, EModeKey {})
+    }
+    
+    public(friend) fun has_emode_config(
+        reserve_config: &ReserveConfig,
+    ): bool {
+        bag::contains(&reserve_config.additional_fields, EModeKey {})
+    }
+    
+    fun get_pair_idx(
+        emode_config: &EmodeConfig,
+        reserve_array_index: u64,
+    ): Option<u64> {
+        // Check if there is already emode parameters for the reserve_array_index
+        let i = vector::length(&emode_config.reserve_array_indices);
+        let pair_idx = none();
+
+        while (i > 0) {
+            let idx = vector::borrow(&emode_config.reserve_array_indices, i - 1);
+
+            if (idx == &reserve_array_index) {
+                fill(&mut pair_idx, *idx);
+            };
+
+            i = i - 1;
+        };
+
+        pair_idx
+    }
+
+    public(friend) fun get_ltvs(
+        emode_config: &EmodeConfig,
+        reserve_array_index: u64,
+    ): (Option<Decimal>, Option<Decimal>) {
+        let pair_idx = get_pair_idx(emode_config, reserve_array_index);
+
+        if (is_none(&pair_idx)) {
+            (none(), none())
+        } else {
+            let pair_idx = destroy_some(pair_idx);
+            let emode_data = vector::borrow(&emode_config.emode_pairs, pair_idx);
+            (
+                some(decimal::from_percent(emode_data.open_ltv_pct)),
+                some(decimal::from_percent(emode_data.close_ltv_pct))
+            )
+        }
+    }
 
     // === Tests ==
     #[test]
