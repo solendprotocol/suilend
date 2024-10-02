@@ -1,7 +1,6 @@
 /// parameters for a Reserve.
 module suilend::reserve_config {
     use std::vector::{Self};
-    use std::option::{Option, some, none};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
     use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
@@ -483,22 +482,29 @@ module suilend::reserve_config {
     ): bool {
         bag::contains(&reserve_config.additional_fields, EModeKey {})
     }
+    
+    public(friend) fun open_ltv_emode(
+        emode_data: &EModeData,
+    ): Decimal {
+        decimal::from_percent(emode_data.open_ltv_pct)
+    }
+    
+    public(friend) fun close_ltv_emode(
+        emode_data: &EModeData,
+    ): Decimal {
+        decimal::from_percent(emode_data.open_ltv_pct)
+    }
 
     public(friend) fun get_emode_ltvs(
-        emode_config: &VecMap<u64, EModeData>,
-        reserve_array_index: u64,
-    ): (Option<Decimal>, Option<Decimal>) {
-        let has_pair = vec_map::contains(emode_config, &reserve_array_index);
+        reserve_config: &ReserveConfig,
+        reserve_array_index: &u64,
+    ): &EModeData {
+        let emode_config = get_emode_config(reserve_config);
+        let has_pair = vec_map::contains(emode_config, reserve_array_index);
 
-        if (!has_pair) {
-            (none(), none())
-        } else {
-            let emode_data = vec_map::get(emode_config, &reserve_array_index);
-            (
-                some(decimal::from_percent(emode_data.open_ltv_pct)),
-                some(decimal::from_percent(emode_data.close_ltv_pct))
-            )
-        }
+        assert!(has_pair, 0);
+
+        vec_map::get(emode_config, reserve_array_index)
     }
 
     // === Tests ==
