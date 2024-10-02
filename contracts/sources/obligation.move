@@ -11,7 +11,6 @@ module suilend::obligation {
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{
         ReserveConfig,
-        EmodeConfig,
         open_ltv,
         close_ltv, 
         borrow_weight, 
@@ -350,7 +349,7 @@ module suilend::obligation {
         while (len > 0) {
             let borrow = vector::borrow_mut(borrow_data, len - 1);
 
-            let (open_ltv_i, close_ltv_i) = reserve_config::get_ltvs(
+            let (open_ltv_i, close_ltv_i) = reserve_config::get_emode_ltvs(
                 emode_config,
                 borrow.reserve_array_index
             );

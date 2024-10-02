@@ -1,10 +1,11 @@
 /// parameters for a Reserve.
 module suilend::reserve_config {
     use std::vector::{Self};
-    use std::option::{Option, some, none, is_none, fill, destroy_some};
+    use std::option::{Option, some, none};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
     use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
+    use sui::vec_map::{Self, VecMap};
 
     friend suilend::reserve;
     friend suilend::obligation;
@@ -63,11 +64,11 @@ module suilend::reserve_config {
         fields: Bag
     }
 
-    struct EmodeConfig has store {
-        // Corresponding to the deposited coin type
-        reserve_array_indices: vector<u64>,
-        emode_pairs: vector<EModeData>
-    }
+    // struct EmodeConfig has store {
+    //     // Corresponding to the deposited coin type
+    //     reserve_array_indices: vector<u64>,
+    //     emode_pairs: vector<EModeData>
+    // }
 
     struct EModeData has store, copy, drop {
         // Corresponding to the correlated pair
@@ -289,12 +290,10 @@ module suilend::reserve_config {
         let has_emode_field = bag::contains(&additional_fields, EModeKey {});
 
         if (has_emode_field) {
-            let emode_config: EmodeConfig = bag::remove(
+            let _emode_config: VecMap<u64, EModeData> = bag::remove(
                 &mut additional_fields,
                 EModeKey {},
             );
-
-            let EmodeConfig { reserve_array_indices: _, emode_pairs: _ } = emode_config;
         };
 
         bag::destroy_empty(additional_fields);
@@ -450,28 +449,24 @@ module suilend::reserve_config {
             bag::add(
                 &mut reserve_config.additional_fields,
                 EModeKey {},
-                EmodeConfig {
-                    reserve_array_indices: vector::empty(),
-                    emode_pairs: vector::empty(),
-                },
+                vec_map::empty<u64, EModeData>(),
             )
         };
 
-        let emode_config: &mut EmodeConfig = bag::borrow_mut(&mut reserve_config.additional_fields, EModeKey {});
+        let emode_config: &mut VecMap<u64, EModeData> = bag::borrow_mut(&mut reserve_config.additional_fields, EModeKey {});
 
         // Check if there is already emode parameters for the reserve_array_index
-        let pair_idx = get_pair_idx(emode_config, reserve_array_index);
+        let has_pair = vec_map::contains(emode_config, &reserve_array_index);
 
-        if (is_none(&pair_idx)) {
-            vector::push_back(&mut emode_config.reserve_array_indices, reserve_array_index);
-            vector::push_back(&mut emode_config.emode_pairs, EModeData {
+        if (!has_pair) {
+            vec_map::insert(emode_config, reserve_array_index, EModeData {
                 reserve_array_index,
                 open_ltv_pct,
                 close_ltv_pct,
             });
         } else {
-            let pair_idx = destroy_some(pair_idx);
-            let emode_data = vector::borrow_mut(&mut emode_config.emode_pairs, pair_idx);
+            let emode_data = vec_map::get_mut(emode_config, &reserve_array_index);
+
             emode_data.open_ltv_pct = open_ltv_pct;
             emode_data.close_ltv_pct = close_ltv_pct;
         };
@@ -479,7 +474,7 @@ module suilend::reserve_config {
 
     public(friend) fun get_emode_config(
         reserve_config: &ReserveConfig,
-    ): &EmodeConfig {
+    ): &VecMap<u64, EModeData> {
         bag::borrow(&reserve_config.additional_fields, EModeKey {})
     }
     
@@ -488,39 +483,17 @@ module suilend::reserve_config {
     ): bool {
         bag::contains(&reserve_config.additional_fields, EModeKey {})
     }
-    
-    fun get_pair_idx(
-        emode_config: &EmodeConfig,
-        reserve_array_index: u64,
-    ): Option<u64> {
-        // Check if there is already emode parameters for the reserve_array_index
-        let i = vector::length(&emode_config.reserve_array_indices);
-        let pair_idx = none();
 
-        while (i > 0) {
-            let idx = vector::borrow(&emode_config.reserve_array_indices, i - 1);
-
-            if (idx == &reserve_array_index) {
-                fill(&mut pair_idx, *idx);
-            };
-
-            i = i - 1;
-        };
-
-        pair_idx
-    }
-
-    public(friend) fun get_ltvs(
-        emode_config: &EmodeConfig,
+    public(friend) fun get_emode_ltvs(
+        emode_config: &VecMap<u64, EModeData>,
         reserve_array_index: u64,
     ): (Option<Decimal>, Option<Decimal>) {
-        let pair_idx = get_pair_idx(emode_config, reserve_array_index);
+        let has_pair = vec_map::contains(emode_config, &reserve_array_index);
 
-        if (is_none(&pair_idx)) {
+        if (!has_pair) {
             (none(), none())
         } else {
-            let pair_idx = destroy_some(pair_idx);
-            let emode_data = vector::borrow(&emode_config.emode_pairs, pair_idx);
+            let emode_data = vec_map::get(emode_config, &reserve_array_index);
             (
                 some(decimal::from_percent(emode_data.open_ltv_pct)),
                 some(decimal::from_percent(emode_data.close_ltv_pct))
