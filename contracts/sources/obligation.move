@@ -1,11 +1,9 @@
 module suilend::obligation {
     // === Imports ===
-    use std::option::{Self, Option, some, none};
     use std::type_name::{TypeName, Self};
     use sui::object::{Self, UID, ID};
     use sui::balance::{Balance};
     use std::vector::{Self};
-    use sui::vec_map::{Self};
     use sui::event::{Self};
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
@@ -711,86 +709,47 @@ module suilend::obligation {
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
 
-            let is_borrow_looped = is_borrow_looped(
-                obligation,
-                borrow,
-                &target_reserve_array_indices,
-                &disabled_pairings_map,
+            // Check if borrow-deposit reserve match
+            let deposit_index = find_deposit_index_by_reserve_array_index(
+                obligation, 
+                borrow.reserve_array_index
             );
 
-            if (is_borrow_looped) {
+            if (deposit_index < vector::length(&obligation.deposits)) {
                 return true
+            };
+
+            // Check if it's a target reserve being borrowed
+            // let target_borrow_idx = target_borrow_idx(borrow, &target_reserve_array_indices);
+            let (has_target_borrow_idx, target_borrow_idx) = vector::index_of(&target_reserve_array_indices, &borrow.reserve_array_index);
+
+            // If the borrowing is over a targetted reserve
+            // we check if the deposit reserve is a disabled pair
+            if (has_target_borrow_idx) {
+                let disabled_pairs = vector::borrow(&disabled_pairings_map, target_borrow_idx);
+                let pair_count = vector::length(disabled_pairs);
+                let i = 0;
+
+                while (i < pair_count) {
+                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
+
+                    let deposit_index = find_deposit_index_by_reserve_array_index(
+                        obligation, 
+                        disabled_reserve_array_index
+                    );
+
+                    if (deposit_index < vector::length(&obligation.deposits)) {
+                        return true
+                    };
+
+                    i = i +1;
+                };
             };
 
             i = i + 1;
         };
 
         false
-    }
-    
-    // Checks if a given `Borrow` object is looped
-    fun is_borrow_looped<P>(
-        obligation: &Obligation<P>,
-        borrow: &Borrow,
-        target_reserve_array_indices: &vector<u64>,
-        disabled_pairings_map: &vector<vector<u64>>,
-    ): bool {
-        // Check if borrow-deposit reserve match
-        let deposit_index = find_deposit_index_by_reserve_array_index(
-            obligation, 
-            borrow.reserve_array_index
-        );
-
-        if (deposit_index < vector::length(&obligation.deposits)) {
-            return true
-        };
-
-        // Check if it's a target reserve being borrowed
-        let target_borrow_idx = target_borrow_idx(borrow, target_reserve_array_indices);
-
-        // If the borrowing is over a targetted reserve
-        // we check if the deposit reserve is a disabled pair
-        if (option::is_some(&target_borrow_idx)) {
-            let disabled_pairs = vector::borrow(disabled_pairings_map, *option::borrow(&target_borrow_idx));
-            let pair_count = vector::length(disabled_pairs);
-            let i = 0;
-
-            while (i < pair_count) {
-                let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
-
-                let deposit_index = find_deposit_index_by_reserve_array_index(
-                    obligation, 
-                    disabled_reserve_array_index
-                );
-                if (deposit_index < vector::length(&obligation.deposits)) {
-                    return true
-                };
-            
-                i = i +1;
-            };
-        };
-
-        return false
-    }
-
-    // Checks if it's borrowing a target reserve and if so returns the
-    // index of the such reserve in the `target_reserve_array_indices` vector
-    fun target_borrow_idx(
-        borrow: &Borrow,
-        target_reserve_array_indices: &vector<u64>,
-    ): Option<u64> {
-        let stable_count = vector::length(target_reserve_array_indices);
-        let i = 0;
-
-        while (i < stable_count) {
-            let stable_idx = *vector::borrow(target_reserve_array_indices, i);
-            if (borrow.reserve_array_index == stable_idx) {
-                return some(i)
-            };
-            i = i +1;
-        };
-
-        return none()
     }
 
     fun zero_out_rewards<P>(
@@ -2961,6 +2920,76 @@ module suilend::obligation {
 
     #[test]
     fun test_is_looped() {
+        use sui::test_scenario::{Self};
+        use sui::clock::{Self};
+        use sui::test_utils::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 0); 
+
+        let reserves = reserves<TEST_MARKET>(&mut scenario);
+        let obligation = create_obligation<TEST_MARKET>(
+            object::uid_to_inner(&lending_market_id), 
+            test_scenario::ctx(&mut scenario)
+        );
+
+        deposit<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
+            &clock,
+            100 * 1_000_000
+        );
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
+            &clock,
+            1_000_000_000
+        );
+
+        assert!(!is_looped(&obligation), 0);
+
+        borrow<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
+            &clock,
+            1_000_000
+        );
+
+        assert!(is_looped(&obligation), 0);
+
+        repay<TEST_MARKET>(
+            &mut obligation, 
+            get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
+            &clock,
+            decimal::from(1_000_000)
+        );
+
+        assert!(!is_looped(&obligation), 0);
+
+        vector::push_back(&mut obligation.borrows, Borrow {
+            coin_type: type_name::get<TEST_USDC>(),
+            reserve_array_index: 2,
+            borrowed_amount: decimal::from(1_000_000),
+            cumulative_borrow_rate: decimal::from_percent(100),
+            market_value: decimal::from(1),
+            user_reward_manager_index: 0,
+        });
+
+        assert!(is_looped(&obligation), 0);
+
+        test_utils::destroy(reserves);
+        sui::test_utils::destroy(lending_market_id);
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+
+    #[test]
+    fun test_is_looped_2() {
         use sui::test_scenario::{Self};
         use sui::clock::{Self};
         use sui::test_utils::{Self};
