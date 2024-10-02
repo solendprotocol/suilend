@@ -486,6 +486,22 @@ module suilend::reserve {
         reserve_config::destroy(old);
     }
 
+    public(friend) fun set_emode_for_pair<P>(
+        reserve: &mut Reserve<P>, 
+        reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
+    ) {
+        let config = cell::get_mut(&mut reserve.config);
+
+        reserve_config::set_emode_for_pair(
+            config,
+            reserve_array_index,
+            open_ltv_pct,
+            close_ltv_pct,
+        );
+    }
+
     public(friend) fun update_price<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,

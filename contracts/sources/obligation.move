@@ -1,6 +1,7 @@
 module suilend::obligation {
     // === Imports ===
     use std::type_name::{TypeName, Self};
+    use std::option::{Self, Option, some, none, is_some};
     use sui::object::{Self, UID, ID};
     use sui::balance::{Balance};
     use std::vector::{Self};
@@ -9,7 +10,9 @@ module suilend::obligation {
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{
-        open_ltv, 
+        ReserveConfig,
+        EmodeConfig,
+        open_ltv,
         close_ltv, 
         borrow_weight, 
         liquidation_bonus, 
@@ -167,6 +170,12 @@ module suilend::obligation {
         }
     }
 
+    struct UnweightedBorrow has copy, drop {
+        reserve_array_index: u64,
+        borrow_weighted_value_usd: Decimal,
+        borrow_weighted_value_upper_bound_usd: Decimal,
+    }
+
 
     /// update the obligation's borrowed amounts and health values. this is 
     /// called by the lending market prior to any borrow, withdraw, or liquidate operation.
@@ -175,6 +184,71 @@ module suilend::obligation {
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock
     ) {
+        let i = 0;
+        let unweighted_borrowed_value_usd = decimal::from(0);
+        let weighted_borrowed_value_usd = decimal::from(0);
+        let weighted_borrowed_value_upper_bound_usd = decimal::from(0);
+        let borrowing_isolated_asset = false;
+
+        let basket: vector<UnweightedBorrow> = vector::empty();
+
+        while (i < vector::length(&obligation.borrows)) {
+            let borrow = vector::borrow_mut(&mut obligation.borrows, i);
+
+            let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
+            reserve::compound_interest(borrow_reserve, clock);
+            reserve::assert_price_is_fresh(borrow_reserve, clock);
+
+            compound_debt(borrow, borrow_reserve);
+
+            let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
+            let market_value_upper_bound = reserve::market_value_upper_bound(
+                borrow_reserve, 
+                borrow.borrowed_amount
+            );
+
+            borrow.market_value = market_value;
+            unweighted_borrowed_value_usd = add(unweighted_borrowed_value_usd, market_value);
+
+            let borrow_weighted_value_usd = mul(
+                market_value,
+                borrow_weight(config(borrow_reserve))
+            );
+            
+            weighted_borrowed_value_usd = add(
+                weighted_borrowed_value_usd,
+                borrow_weighted_value_usd
+            );
+
+            let borrow_weighted_value_upper_bound_usd = mul(
+                market_value_upper_bound,
+                borrow_weight(config(borrow_reserve))
+            );
+            
+            weighted_borrowed_value_upper_bound_usd = add(
+                weighted_borrowed_value_upper_bound_usd,
+                borrow_weighted_value_upper_bound_usd,
+            );
+
+            vector::push_back(&mut basket, UnweightedBorrow {
+                reserve_array_index: borrow.reserve_array_index,
+                borrow_weighted_value_usd,
+                borrow_weighted_value_upper_bound_usd,
+            });
+
+            if (isolated(config(borrow_reserve))) {
+                borrowing_isolated_asset = true;
+            };
+
+            i = i + 1;
+        };
+
+        obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
+        obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
+        obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
+
+        obligation.borrowing_isolated_asset = borrowing_isolated_asset;
+
         let i = 0;
         let deposited_value_usd = decimal::from(0);
         let allowed_borrow_value_usd = decimal::from(0);
@@ -199,6 +273,14 @@ module suilend::obligation {
 
             deposit.market_value = market_value;
             deposited_value_usd = add(deposited_value_usd, market_value);
+
+            let (emode_allowed, emode_unhealthy) = collect_emode_values(
+                market_value,
+                market_value_lower_bound,
+                &mut basket,
+                config(deposit_reserve),
+            );
+            
             allowed_borrow_value_usd = add(
                 allowed_borrow_value_usd,
                 mul(
@@ -220,57 +302,127 @@ module suilend::obligation {
         obligation.deposited_value_usd = deposited_value_usd;
         obligation.allowed_borrow_value_usd = allowed_borrow_value_usd;
         obligation.unhealthy_borrow_value_usd = unhealthy_borrow_value_usd;
+    }
 
-        let i = 0;
-        let unweighted_borrowed_value_usd = decimal::from(0);
-        let weighted_borrowed_value_usd = decimal::from(0);
-        let weighted_borrowed_value_upper_bound_usd = decimal::from(0);
-        let borrowing_isolated_asset = false;
-
-        while (i < vector::length(&obligation.borrows)) {
-            let borrow = vector::borrow_mut(&mut obligation.borrows, i);
-
-            let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
-            reserve::compound_interest(borrow_reserve, clock);
-            reserve::assert_price_is_fresh(borrow_reserve, clock);
-
-            compound_debt(borrow, borrow_reserve);
-
-            let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
-            let market_value_upper_bound = reserve::market_value_upper_bound(
-                borrow_reserve, 
-                borrow.borrowed_amount
-            ); 
-
-            borrow.market_value = market_value;
-            unweighted_borrowed_value_usd = add(unweighted_borrowed_value_usd, market_value);
-            weighted_borrowed_value_usd = add(
-                weighted_borrowed_value_usd,
-                mul(
-                    market_value,
-                    borrow_weight(config(borrow_reserve))
-                )
-            );
-            weighted_borrowed_value_upper_bound_usd = add(
-                weighted_borrowed_value_upper_bound_usd,
-                mul(
-                    market_value_upper_bound,
-                    borrow_weight(config(borrow_reserve))
-                )
-            );
-
-            if (isolated(config(borrow_reserve))) {
-                borrowing_isolated_asset = true;
-            };
-
-            i = i + 1;
+    fun collect_emode_values(
+        deposit_value: Decimal, // vs. borrow_weighted_value
+        deposit_value_lower_bound: Decimal, // vs. borrow_weighted_value_upper_bound_usd
+        basket: &mut vector<UnweightedBorrow>,
+        config: &ReserveConfig,
+    ): (Option<Decimal>, Option<Decimal>) {
+        if (!reserve_config::has_emode_config(config)) {
+            return (none(), none());
         };
 
-        obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
-        obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
-        obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
+        let emode_config = reserve_config::get_emode_config(config);
 
-        obligation.borrowing_isolated_asset = borrowing_isolated_asset;
+        let len = vector::length(basket);
+        let emode_allowed = decimal::from(0);
+        let emode_unhealthy = decimal::from(0);
+        
+        let residual_deposit_value = deposit_value;
+        let residual_deposit_value_lower_bound = deposit_value_lower_bound;
+
+        while (len > 0) {
+            let borrow = vector::borrow_mut(basket, len - 1);
+
+            let is_correlated = reserve_config::is_correlated(
+                emode_config,
+                borrow.reserve_array_index
+            );
+
+            if (!is_correlated) {
+                continue
+            } else {
+                // Collect values for emode_allowed
+                collect_emode(
+                    &mut emode_allowed,
+                    &mut residual_deposit_value_lower_bound,
+                    &mut borrow.borrow_weighted_value_upper_bound_usd,
+                );
+
+                // Collect values for emode_unhealthy
+                collect_emode(
+                    &mut emode_unhealthy,
+                    &mut residual_deposit_value,
+                    &mut borrow.borrow_weighted_value_usd,
+                );
+
+                // Pop element from basket of unweighted borrows if values
+                // are fully collected
+                if (
+                    eq(borrow.borrow_weighted_value_upper_bound_usd, decimal::from(0))
+                    && eq(borrow.borrow_weighted_value_usd, decimal::from(0))
+                ) {
+                    vector::pop_back(basket);
+                };
+            };
+
+            len = len - 1;
+        };
+
+        (some(emode_allowed), some(emode_unhealthy))
+    }
+
+    fun collect_emode(
+        emode_value: &mut Decimal,
+        residual_deposit_value: &mut Decimal,
+        borrow_weighted_value: &mut Decimal,
+    ) {
+        *emode_value = add(
+            *emode_value,
+            min(*borrow_weighted_value, *residual_deposit_value)
+        );
+
+        let previous_residual_deposit_value_lower_bound = *residual_deposit_value;
+
+        *residual_deposit_value = saturating_sub(
+            *residual_deposit_value,
+            *borrow_weighted_value,
+        );
+
+        *borrow_weighted_value = saturating_sub(
+            *borrow_weighted_value,
+            previous_residual_deposit_value_lower_bound
+        );
+        
+    }
+    
+    fun compute_allowed_borrow_value(
+        deposit_value_lower_bound: Decimal,
+        borrow_weighted_value_upper_bound_in_emode: Option<Decimal>,
+        config: &ReserveConfig,
+        open_ltv: Decimal,
+        open_ltv_emode: Decimal,
+    ): Decimal {
+        let open_ltv = open_ltv(config);
+        let net_deposit_value_lower_bound = deposit_value_lower_bound;
+
+        let emode_value = if (is_some(&borrow_weighted_value_upper_bound_in_emode)) {
+            let borrow_weighted_value_upper_bound_in_emode = option::destroy_some(borrow_weighted_value_upper_bound_in_emode);
+            net_deposit_value_lower_bound = saturating_sub(
+                net_deposit_value_lower_bound, borrow_weighted_value_upper_bound_in_emode
+            );
+
+            mul(
+                borrow_weighted_value_upper_bound_in_emode,
+                open_ltv_emode,
+            )
+
+        } else {
+            decimal::from(0)
+        };
+
+
+        let normal_value = mul(
+            net_deposit_value_lower_bound,
+            open_ltv
+        );
+        
+        add(
+            emode_value,
+            normal_value,
+        )
     }
 
     /// Process a deposit action

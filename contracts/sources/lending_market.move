@@ -819,6 +819,23 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
+    // TODO:Consider taking EModeConfig as param..
+    public fun set_emode_for_pair<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        pair_reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::set_emode_for_pair<P>(reserve, pair_reserve_array_index, open_ltv_pct, close_ltv_pct);
+    }
+
     public fun add_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 

@@ -16,6 +16,10 @@ module suilend::cell {
     public fun get<Element>(cell: &Cell<Element>): &Element {
         option::borrow(&cell.element)
     }
+    
+    public fun get_mut<Element>(cell: &mut Cell<Element>): &mut Element {
+        option::borrow_mut(&mut cell.element)
+    }
 
     public fun destroy<Element>(cell: Cell<Element>): Element {
         let Cell { element } = cell;
