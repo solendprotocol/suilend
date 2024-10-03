@@ -494,10 +494,10 @@ module suilend::reserve_config {
     public(friend) fun close_ltv_emode(
         emode_data: &EModeData,
     ): Decimal {
-        decimal::from_percent(emode_data.open_ltv_pct)
+        decimal::from_percent(emode_data.close_ltv_pct)
     }
 
-    public(friend) fun get_emode_ltvs(
+    public(friend) fun get_emode_data(
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): &EModeData {
@@ -690,4 +690,109 @@ module suilend::reserve_config {
         config
     }
 
+    #[test]
+    fun test_emode_reserve_config() {
+        use sui::test_utils::assert_eq;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let utils = vector::empty();
+        vector::push_back(&mut utils, 0);
+        vector::push_back(&mut utils, 100);
+
+        let aprs = vector::empty();
+        vector::push_back(&mut aprs, 0);
+        vector::push_back(&mut aprs, 100);
+
+        let config = create_reserve_config(
+            10,
+            10,
+            10,
+            10_000,
+            1,
+            1,
+            5,
+            5,
+            100000,
+            100000,
+            10,
+            2000,
+            30,
+            utils,
+            aprs,
+            false,
+            0,
+            0,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        set_emode_for_pair(
+            &mut config,
+            1,
+            80,
+            60,
+        );
+
+        check_emode_validity(&config, &1);
+
+        assert!(has_emode_config(&config), 0);
+        let emode_data = get_emode_data(&config, &1);
+        assert_eq(open_ltv_emode(emode_data), decimal::from_percent(80));
+        assert_eq(close_ltv_emode(emode_data), decimal::from_percent(60));
+
+        destroy(config);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    fun test_fail_emode_validity() {
+        use sui::test_utils::assert_eq;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let utils = vector::empty();
+        vector::push_back(&mut utils, 0);
+        vector::push_back(&mut utils, 100);
+
+        let aprs = vector::empty();
+        vector::push_back(&mut aprs, 0);
+        vector::push_back(&mut aprs, 100);
+
+        let config = create_reserve_config(
+            10,
+            10,
+            10,
+            10_000,
+            1,
+            1,
+            5,
+            5,
+            100000,
+            100000,
+            10,
+            2000,
+            30,
+            utils,
+            aprs,
+            false,
+            0,
+            0,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        set_emode_for_pair(
+            &mut config,
+            1,
+            80,
+            60,
+        );
+
+        assert_eq(check_emode_validity(&config, &2), false);
+
+
+        destroy(config);
+        test_scenario::end(scenario);
+    }
 }
