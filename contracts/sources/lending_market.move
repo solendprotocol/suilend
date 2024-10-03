@@ -381,7 +381,7 @@ module suilend::lending_market {
     }
     
     /// Set emode for obligation - T is the deposit coin type
-    public fun set_emode<P, T>(
+    public fun set_emode<P>(
         lending_market: &mut LendingMarket<P>,
         deposit_reserve_array_index: u64,
         borrow_reserve_array_index: u64,
@@ -395,12 +395,12 @@ module suilend::lending_market {
         );
 
         let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_array_index);
-        assert!(reserve::coin_type(deposit_reserve) == type_name::get<T>(), EWrongType);
+        let borrow_reserve = vector::borrow(&lending_market.reserves, borrow_reserve_array_index);
 
         obligation::set_emode(
             obligation,
             deposit_reserve,
-            borrow_reserve_array_index
+            borrow_reserve,
         );
     }
 

@@ -42,8 +42,12 @@ module suilend::obligation {
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EEmodeInvalidForPairProvided: u64 = 9;
-    const EInvalidEModeDeposit: u64 = 10;
-    const EInvalidEModeBorrow: u64 = 11;
+    const EEModeNotValidWithCrossMargin: u64 = 10;
+    const EEModeObligationBorrowNotValid: u64 = 11;
+    const EEModeObligationDepositNotValid: u64 = 12;
+    const EEmodeCrossMarginNotAllowed: u64 = 13;
+    const EInvalidEModeDeposit: u64 = 14;
+    const EInvalidEModeBorrow: u64 = 15;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -183,15 +187,36 @@ module suilend::obligation {
     public(friend) fun set_emode<P>(
         obligation: &mut Obligation<P>,
         deposit_reserve: &Reserve<P>,
-        borrow_reserve_array_index: u64,
+        borrow_reserve: &Reserve<P>,
     ) {
+        assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
+        assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
+
         let deposit_reserve_array_index = reserve::array_index(deposit_reserve);
+        let borrow_reserve_array_index = reserve::array_index(borrow_reserve);
 
         let is_valid_emode = reserve_config::check_emode_validity(
             config(deposit_reserve), &borrow_reserve_array_index
         );
-
         assert!(is_valid_emode, EEmodeInvalidForPairProvided);
+
+        // The obligation must ONLY have one deposit and one borrow, and
+        // they both must match the emod ones
+        if (vector::length(&obligation.borrows) == 1) {
+            let borrow = vector::borrow(&obligation.borrows, 0);
+            assert!(
+                borrow.reserve_array_index == borrow_reserve_array_index,
+                EEModeObligationDepositNotValid
+            );
+        };
+        
+        if (vector::length(&obligation.deposits) == 1) {
+            let deposit = vector::borrow(&obligation.deposits, 0);
+            assert!(
+                deposit.reserve_array_index == deposit_reserve_array_index,
+                EEModeObligationBorrowNotValid
+            );
+        };
 
         df::add(&mut obligation.id, EModeFlag {}, EModeReserveIndices {
             deposit_reserve_array_index,
@@ -260,7 +285,6 @@ module suilend::obligation {
         obligation.deposited_value_usd = deposited_value_usd;
         obligation.allowed_borrow_value_usd = allowed_borrow_value_usd;
         obligation.unhealthy_borrow_value_usd = unhealthy_borrow_value_usd;
-
 
         let i = 0;
         let unweighted_borrowed_value_usd = decimal::from(0);
@@ -337,7 +361,7 @@ module suilend::obligation {
         let is_emode = is_emode(obligation);
 
         if (is_emode) {
-            assert!(vector::length(&obligation.deposits) == 1, ETooManyDeposits);
+            assert!(vector::length(&obligation.deposits) == 1, EEmodeCrossMarginNotAllowed);
             
             let target_reserve_index = emode_deposit_reserve_array_index(obligation);
             let deposit = vector::borrow(&obligation.deposits, deposit_index);
@@ -402,7 +426,7 @@ module suilend::obligation {
         let is_emode = is_emode(obligation);
 
         if (is_emode) {
-            assert!(vector::length(&obligation.borrows) == 1, ETooManyBorrows);
+            assert!(vector::length(&obligation.borrows) == 1, EEmodeCrossMarginNotAllowed);
             let target_reserve_index = emode_borrow_reserve_array_index(obligation);
             let borrow = vector::borrow(&obligation.borrows, borrow_index);
             assert!(borrow.reserve_array_index == target_reserve_index, EInvalidEModeBorrow);
@@ -1197,11 +1221,11 @@ module suilend::obligation {
         is_emode: bool,
     ): (Decimal, Decimal) {
         if (is_emode) {
-            let borrow_reserve_array_index = df::borrow(&obligation.id, EModeFlag {});
+            let indices: &EModeReserveIndices = df::borrow(&obligation.id, EModeFlag {});
                 
-            let emode_data = reserve_config::get_emode_ltvs(
+            let emode_data = reserve_config::get_emode_data(
                 config(deposit_reserve),
-                borrow_reserve_array_index
+                &indices.borrow_reserve_array_index
             );
 
             (open_ltv_emode(emode_data), close_ltv_emode(emode_data))
@@ -3124,6 +3148,363 @@ module suilend::obligation {
         sui::test_utils::destroy(lending_market_id);
         clock::destroy_for_testing(clock);
         sui::test_utils::destroy(obligation);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    public fun test_emode_deposit_borrow() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40, // 20
+            80, // 50
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+
+        assert!(vector::length(&obligation.deposits) == 1, 0);
+
+        let sui_deposit = vector::borrow(&obligation.deposits, 0);
+        assert!(sui_deposit.deposited_ctoken_amount == 100 * 1_000_000_000, 3);
+        assert!(sui_deposit.market_value == decimal::from(1000), 4);
+
+        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, sui_deposit.user_reward_manager_index);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 3);
+
+        assert!(vector::length(&obligation.borrows) == 1, 0);
+
+        let usdc_borrow = vector::borrow(&obligation.borrows, 0);
+        assert!(usdc_borrow.borrowed_amount == decimal::from(25 * 1_000_000), 1);
+        assert!(usdc_borrow.cumulative_borrow_rate == decimal::from(2), 2);
+        assert!(usdc_borrow.market_value == decimal::from(25), 3);
+
+        let user_reward_manager = vector::borrow(&obligation.user_reward_managers, usdc_borrow.user_reward_manager_index);
+        assert!(liquidity_mining::shares(user_reward_manager) == 25 * 1_000_000 / 2, 4);
+
+        // Values unchanged due to emode
+        assert!(obligation.deposited_value_usd == decimal::from(1000), 0);
+        assert!(obligation.unweighted_borrowed_value_usd == decimal::from(25), 3);
+        
+        // Values changed due to emode
+        assert!(obligation.allowed_borrow_value_usd == decimal::from(200), 1);
+        assert!(obligation.unhealthy_borrow_value_usd == decimal::from(800), 2);
+        assert!(obligation.weighted_borrowed_value_usd == decimal::from(25), 4);
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd == decimal::from(50), 4);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    public fun test_emode_multiple_borrows_happy() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40,
+            60,
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    #[expected_failure(abort_code = EEmodeCrossMarginNotAllowed)]
+    public fun test_emode_multiple_borrows_fail() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let usdt_reserve = usdt_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+        reserve::update_price_for_testing(
+            &mut usdt_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40,
+            60,
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdt_reserve, &clock, 12_500_000);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(usdt_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    #[expected_failure(abort_code = EInvalidEModeBorrow)]
+    public fun test_emode_invalid_borrow_fail() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let usdt_reserve = usdt_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+        reserve::update_price_for_testing(
+            &mut usdt_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40,
+            60,
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        borrow<TEST_MARKET>(&mut obligation, &mut usdt_reserve, &clock, 12_500_000);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(usdt_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    #[expected_failure(abort_code = EEmodeCrossMarginNotAllowed)]
+    public fun test_emode_multiple_deposits_fail() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40,
+            60,
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
+        deposit<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    #[expected_failure(abort_code = EInvalidEModeDeposit)]
+    public fun test_emode_invalid_deposit_fail() {
+        use sui::test_scenario::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        let usdc_reserve = usdc_reserve(&mut scenario);
+        let sui_reserve = sui_reserve(&mut scenario);
+
+        let obligation = create_obligation<TEST_MARKET>(object::uid_to_inner(&lending_market_id), test_scenario::ctx(&mut scenario));
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        reserve::update_price_for_testing(
+            &mut usdc_reserve, 
+            &clock, 
+            decimal::from(1), 
+            decimal::from(2)
+        );
+        reserve::update_price_for_testing(
+            &mut sui_reserve, 
+            &clock, 
+            decimal::from(10), 
+            decimal::from(5)
+        );
+
+        reserve::set_emode_for_pair(
+            &mut sui_reserve,
+            reserve::array_index(&usdc_reserve),
+            40,
+            60,
+        );
+
+        set_emode(
+            &mut obligation,
+            &sui_reserve, // deposit
+            &usdc_reserve, // borrow
+        );
+
+        deposit<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
+
+        sui::test_utils::destroy(lending_market_id);
+        sui::test_utils::destroy(usdc_reserve);
+        sui::test_utils::destroy(sui_reserve);
+        sui::test_utils::destroy(obligation);
+        clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
 }

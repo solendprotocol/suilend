@@ -730,16 +730,16 @@ module suilend::reserve_config {
         set_emode_for_pair(
             &mut config,
             1,
-            80,
             60,
+            80,
         );
 
         check_emode_validity(&config, &1);
 
         assert!(has_emode_config(&config), 0);
         let emode_data = get_emode_data(&config, &1);
-        assert_eq(open_ltv_emode(emode_data), decimal::from_percent(80));
-        assert_eq(close_ltv_emode(emode_data), decimal::from_percent(60));
+        assert_eq(open_ltv_emode(emode_data), decimal::from_percent(60));
+        assert_eq(close_ltv_emode(emode_data), decimal::from_percent(80));
 
         destroy(config);
         test_scenario::end(scenario);
@@ -785,8 +785,8 @@ module suilend::reserve_config {
         set_emode_for_pair(
             &mut config,
             1,
-            80,
             60,
+            80,
         );
 
         assert_eq(check_emode_validity(&config, &2), false);
