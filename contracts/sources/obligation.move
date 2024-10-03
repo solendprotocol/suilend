@@ -719,9 +719,10 @@ module suilend::obligation {
                 return true
             };
 
-            // Check if it's a target reserve being borrowed
-            // let target_borrow_idx = target_borrow_idx(borrow, &target_reserve_array_indices);
-            let (has_target_borrow_idx, target_borrow_idx) = vector::index_of(&target_reserve_array_indices, &borrow.reserve_array_index);
+            let (has_target_borrow_idx, target_borrow_idx) = vector::index_of(
+                &target_reserve_array_indices,
+                &borrow.reserve_array_index
+            );
 
             // If the borrowing is over a targetted reserve
             // we check if the deposit reserve is a disabled pair
