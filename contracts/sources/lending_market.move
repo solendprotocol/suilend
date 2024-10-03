@@ -379,6 +379,30 @@ module suilend::lending_market {
         obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(receive_balance, ctx)
     }
+    
+    /// Set emode for obligation - T is the deposit coin type
+    public fun set_emode<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        deposit_reserve_array_index: u64,
+        borrow_reserve_array_index: u64,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_array_index);
+        assert!(reserve::coin_type(deposit_reserve) == type_name::get<T>(), EWrongType);
+
+        obligation::set_emode(
+            obligation,
+            deposit_reserve,
+            borrow_reserve_array_index
+        );
+    }
 
     public fun withdraw_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
@@ -819,7 +843,6 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
-    // TODO:Consider taking EModeConfig as param..
     public fun set_emode_for_pair<P, T>(
         _: &LendingMarketOwnerCap<P>, 
         lending_market: &mut LendingMarket<P>, 

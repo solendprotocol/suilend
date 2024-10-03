@@ -63,14 +63,8 @@ module suilend::reserve_config {
         fields: Bag
     }
 
-    // struct EmodeConfig has store {
-    //     // Corresponding to the deposited coin type
-    //     reserve_array_indices: vector<u64>,
-    //     emode_pairs: vector<EModeData>
-    // }
-
     struct EModeData has store, copy, drop {
-        // Corresponding to the correlated pair
+        // Corresponding borrow reserve index
         reserve_array_index: u64,
         open_ltv_pct: u8,
         close_ltv_pct: u8,
@@ -471,6 +465,14 @@ module suilend::reserve_config {
         };
     }
 
+    public(friend) fun check_emode_validity(
+        reserve_config: &ReserveConfig,
+        reserve_array_index: &u64,
+    ): bool {
+        let emode_config = get_emode_config(reserve_config);
+        vec_map::contains(emode_config, reserve_array_index)
+    }
+    
     public(friend) fun get_emode_config(
         reserve_config: &ReserveConfig,
     ): &VecMap<u64, EModeData> {
