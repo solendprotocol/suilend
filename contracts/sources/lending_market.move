@@ -379,6 +379,30 @@ module suilend::lending_market {
         obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         coin::from_balance(receive_balance, ctx)
     }
+    
+    /// Set emode for obligation - T is the deposit coin type
+    public fun set_emode<P>(
+        lending_market: &mut LendingMarket<P>,
+        deposit_reserve_array_index: u64,
+        borrow_reserve_array_index: u64,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_array_index);
+        let borrow_reserve = vector::borrow(&lending_market.reserves, borrow_reserve_array_index);
+
+        obligation::set_emode(
+            obligation,
+            deposit_reserve,
+            borrow_reserve,
+        );
+    }
 
     public fun withdraw_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
@@ -817,6 +841,22 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::update_reserve_config<P>(reserve, config);
+    }
+
+    public fun set_emode_for_pair<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        pair_reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::set_emode_for_pair<P>(reserve, pair_reserve_array_index, open_ltv_pct, close_ltv_pct);
     }
 
     public fun add_pool_reward<P, RewardType>(

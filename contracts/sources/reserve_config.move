@@ -4,12 +4,20 @@ module suilend::reserve_config {
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
     use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
+    use sui::vec_map::{Self, VecMap};
+
+    friend suilend::reserve;
+    friend suilend::obligation;
 
     #[test_only]
     use sui::test_scenario::{Self};
 
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
+    const ENoEModeConfigForDepositReserve: u64 = 2;
+    const EBorrowReserveIsNotAnEModePair: u64 = 3;
+
+    struct EModeKey has copy, store, drop {}
 
     struct ReserveConfig has store {
         // risk params
@@ -55,6 +63,13 @@ module suilend::reserve_config {
 
     struct ReserveConfigBuilder has store {
         fields: Bag
+    }
+
+    struct EModeData has store, copy, drop {
+        // Corresponding borrow reserve index
+        reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
     }
 
     public fun create_reserve_config(
@@ -267,6 +282,15 @@ module suilend::reserve_config {
             additional_fields
         } = config;
 
+        let has_emode_field = bag::contains(&additional_fields, EModeKey {});
+
+        if (has_emode_field) {
+            let _emode_config: VecMap<u64, EModeData> = bag::remove(
+                &mut additional_fields,
+                EModeKey {},
+            );
+        };
+
         bag::destroy_empty(additional_fields);
     }
 
@@ -405,6 +429,86 @@ module suilend::reserve_config {
         config
     }
 
+
+    // === eMode Package Functions ==
+
+    public(friend) fun set_emode_for_pair(
+        reserve_config: &mut ReserveConfig,
+        reserve_array_index: u64,
+        open_ltv_pct: u8,
+        close_ltv_pct: u8,
+    ) {
+        if (!has_emode_config(reserve_config)) {
+            bag::add(
+                &mut reserve_config.additional_fields,
+                EModeKey {},
+                vec_map::empty<u64, EModeData>(),
+            )
+        };
+
+        let emode_config: &mut VecMap<u64, EModeData> = bag::borrow_mut(&mut reserve_config.additional_fields, EModeKey {});
+
+        // Check if there is already emode parameters for the reserve_array_index
+        let has_pair = vec_map::contains(emode_config, &reserve_array_index);
+
+        if (!has_pair) {
+            vec_map::insert(emode_config, reserve_array_index, EModeData {
+                reserve_array_index,
+                open_ltv_pct,
+                close_ltv_pct,
+            });
+        } else {
+            let emode_data = vec_map::get_mut(emode_config, &reserve_array_index);
+
+            emode_data.open_ltv_pct = open_ltv_pct;
+            emode_data.close_ltv_pct = close_ltv_pct;
+        };
+    }
+
+    public(friend) fun check_emode_validity(
+        reserve_config: &ReserveConfig,
+        reserve_array_index: &u64,
+    ): bool {
+        let emode_config = get_emode_config_checked(reserve_config);
+        vec_map::contains(emode_config, reserve_array_index)
+    }
+
+    public(friend) fun get_emode_config_checked(
+        reserve_config: &ReserveConfig,
+    ): &VecMap<u64, EModeData> {
+        assert!(bag::contains(&reserve_config.additional_fields, EModeKey {}), ENoEModeConfigForDepositReserve);
+        bag::borrow(&reserve_config.additional_fields, EModeKey {})
+    }
+    
+    public(friend) fun has_emode_config(
+        reserve_config: &ReserveConfig,
+    ): bool {
+        bag::contains(&reserve_config.additional_fields, EModeKey {})
+    }
+    
+    public(friend) fun open_ltv_emode(
+        emode_data: &EModeData,
+    ): Decimal {
+        decimal::from_percent(emode_data.open_ltv_pct)
+    }
+    
+    public(friend) fun close_ltv_emode(
+        emode_data: &EModeData,
+    ): Decimal {
+        decimal::from_percent(emode_data.close_ltv_pct)
+    }
+
+    public(friend) fun get_emode_data_checked(
+        reserve_config: &ReserveConfig,
+        reserve_array_index: &u64,
+    ): &EModeData {
+        let emode_config = get_emode_config_checked(reserve_config);
+        let has_pair = vec_map::contains(emode_config, reserve_array_index);
+
+        assert!(has_pair, EBorrowReserveIsNotAnEModePair);
+
+        vec_map::get(emode_config, reserve_array_index)
+    }
 
     // === Tests ==
     #[test]
@@ -587,4 +691,109 @@ module suilend::reserve_config {
         config
     }
 
+    #[test]
+    fun test_emode_reserve_config() {
+        use sui::test_utils::assert_eq;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let utils = vector::empty();
+        vector::push_back(&mut utils, 0);
+        vector::push_back(&mut utils, 100);
+
+        let aprs = vector::empty();
+        vector::push_back(&mut aprs, 0);
+        vector::push_back(&mut aprs, 100);
+
+        let config = create_reserve_config(
+            10,
+            10,
+            10,
+            10_000,
+            1,
+            1,
+            5,
+            5,
+            100000,
+            100000,
+            10,
+            2000,
+            30,
+            utils,
+            aprs,
+            false,
+            0,
+            0,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        set_emode_for_pair(
+            &mut config,
+            1,
+            60,
+            80,
+        );
+
+        check_emode_validity(&config, &1);
+
+        assert!(has_emode_config(&config), 0);
+        let emode_data = get_emode_data_checked(&config, &1);
+        assert_eq(open_ltv_emode(emode_data), decimal::from_percent(60));
+        assert_eq(close_ltv_emode(emode_data), decimal::from_percent(80));
+
+        destroy(config);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    fun test_fail_emode_validity() {
+        use sui::test_utils::assert_eq;
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+
+        let utils = vector::empty();
+        vector::push_back(&mut utils, 0);
+        vector::push_back(&mut utils, 100);
+
+        let aprs = vector::empty();
+        vector::push_back(&mut aprs, 0);
+        vector::push_back(&mut aprs, 100);
+
+        let config = create_reserve_config(
+            10,
+            10,
+            10,
+            10_000,
+            1,
+            1,
+            5,
+            5,
+            100000,
+            100000,
+            10,
+            2000,
+            30,
+            utils,
+            aprs,
+            false,
+            0,
+            0,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        set_emode_for_pair(
+            &mut config,
+            1,
+            60,
+            80,
+        );
+
+        assert_eq(check_emode_validity(&config, &2), false);
+
+
+        destroy(config);
+        test_scenario::end(scenario);
+    }
 }
