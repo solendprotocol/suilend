@@ -14,6 +14,8 @@ module suilend::reserve_config {
 
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
+    const ENoEModeConfigForDepositReserve: u64 = 2;
+    const EBorrowReserveIsNotAnEModePair: u64 = 3;
 
     struct EModeKey has copy, store, drop {}
 
@@ -469,13 +471,14 @@ module suilend::reserve_config {
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): bool {
-        let emode_config = get_emode_config(reserve_config);
+        let emode_config = get_emode_config_checked(reserve_config);
         vec_map::contains(emode_config, reserve_array_index)
     }
-    
-    public(friend) fun get_emode_config(
+
+    public(friend) fun get_emode_config_checked(
         reserve_config: &ReserveConfig,
     ): &VecMap<u64, EModeData> {
+        assert!(bag::contains(&reserve_config.additional_fields, EModeKey {}), ENoEModeConfigForDepositReserve);
         bag::borrow(&reserve_config.additional_fields, EModeKey {})
     }
     
@@ -497,14 +500,14 @@ module suilend::reserve_config {
         decimal::from_percent(emode_data.close_ltv_pct)
     }
 
-    public(friend) fun get_emode_data(
+    public(friend) fun get_emode_data_checked(
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): &EModeData {
-        let emode_config = get_emode_config(reserve_config);
+        let emode_config = get_emode_config_checked(reserve_config);
         let has_pair = vec_map::contains(emode_config, reserve_array_index);
 
-        assert!(has_pair, 0);
+        assert!(has_pair, EBorrowReserveIsNotAnEModePair);
 
         vec_map::get(emode_config, reserve_array_index)
     }
@@ -737,7 +740,7 @@ module suilend::reserve_config {
         check_emode_validity(&config, &1);
 
         assert!(has_emode_config(&config), 0);
-        let emode_data = get_emode_data(&config, &1);
+        let emode_data = get_emode_data_checked(&config, &1);
         assert_eq(open_ltv_emode(emode_data), decimal::from_percent(60));
         assert_eq(close_ltv_emode(emode_data), decimal::from_percent(80));
 
