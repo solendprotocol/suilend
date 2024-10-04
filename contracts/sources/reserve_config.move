@@ -438,9 +438,7 @@ module suilend::reserve_config {
         open_ltv_pct: u8,
         close_ltv_pct: u8,
     ) {
-        let has_emode_field = bag::contains(&reserve_config.additional_fields, EModeKey {});
-
-        if (!has_emode_field) {
+        if (!has_emode_config(reserve_config)) {
             bag::add(
                 &mut reserve_config.additional_fields,
                 EModeKey {},

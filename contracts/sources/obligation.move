@@ -481,8 +481,7 @@ module suilend::obligation {
         clock: &Clock,
         max_repay_amount: Decimal,
     ): Decimal {
-        let is_emode = is_emode(obligation);
-        let borrow_weight = if (is_emode) {
+        let borrow_weight = if (is_emode(obligation)) {
             decimal::from(1)
         } else {
             borrow_weight(config(reserve))
