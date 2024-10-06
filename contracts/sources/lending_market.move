@@ -32,6 +32,7 @@ module suilend::lending_market {
     const EDuplicateReserve: u64 = 4;
     const ERewardPeriodNotOver: u64 = 5;
     const ECannotClaimReward: u64 = 6;
+    const EInvalidObligationId: u64 = 7;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 5;
@@ -938,6 +939,23 @@ module suilend::lending_market {
 
         transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), lending_market.fee_receiver);
         transfer::public_transfer(coin::from_balance(fees, ctx), lending_market.fee_receiver);
+    }
+
+    public fun new_obligation_owner_cap<P>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &LendingMarket<P>,
+        obligation_id: ID,
+        ctx: &mut TxContext
+    ): ObligationOwnerCap<P> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(object_table::contains(&lending_market.obligations, obligation_id), EInvalidObligationId);
+
+        let cap = ObligationOwnerCap<P> { 
+            id: object::new(ctx), 
+            obligation_id: obligation_id
+        };
+
+        cap
     }
 
     // === Private Functions ===
@@ -2571,6 +2589,91 @@ module suilend::lending_market {
         test_utils::destroy(prices);
         test_utils::destroy(type_to_index);
         test_utils::destroy(new_price_info_obj);
+        test_scenario::end(scenario);
+    }
+    
+    #[test]
+    public fun test_admin_new_obligation_cap() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let scenario = test_scenario::begin(owner);
+        let State { clock, owner_cap, lending_market, prices, type_to_index } = setup({
+            let bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_borrow_weight_bps(&mut builder, 20_000);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // create obligation
+        let obligation_owner_cap = create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let obligation_id = obligation_owner_cap.obligation_id;
+
+        // Mock accidental burning of obligation cap
+        transfer::public_transfer(obligation_owner_cap, @0x0);
+
+        let obligation_owner_cap = new_obligation_owner_cap(
+            &owner_cap,
+            &lending_market,
+            obligation_id,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        assert!(obligation_owner_cap.obligation_id == obligation_id, 0);
+
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 }
