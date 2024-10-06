@@ -200,6 +200,11 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+
+    public fun price_identifier<P>(reserve: &Reserve<P>): &PriceIdentifier {
+        &reserve.price_identifier
+    }
+    
     public fun borrows_pool_reward_manager<P>(reserve: &Reserve<P>): &PoolRewardManager {
         &reserve.borrows_pool_reward_manager
     }
@@ -743,6 +748,15 @@ module suilend::reserve {
         log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::split(&mut balances.deposited_ctokens, amount)
+    }
+
+    public(friend) fun change_price_feed<P>(
+        reserve: &mut Reserve<P>,
+        price_info_obj: &PriceInfoObject,
+        clock: &Clock,
+    ){
+        let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        reserve.price_identifier = price_identifier;
     }
 
     // === Private Functions ===

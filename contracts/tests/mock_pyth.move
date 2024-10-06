@@ -24,8 +24,14 @@ module suilend::mock_pyth {
     }
 
     public fun register<T>(state: &mut PriceState, ctx: &mut TxContext) {
+        let price_info_obj = new_price_info_obj((bag::length(&state.price_objs) as u8), ctx);
+
+        bag::add(&mut state.price_objs, std::type_name::get<T>(), price_info_obj);
+    }
+
+    public fun new_price_info_obj(idx: u8, ctx: &mut TxContext): PriceInfoObject {
         let v = vector::empty<u8>();
-        vector::push_back(&mut v, (bag::length(&state.price_objs) as u8));
+        vector::push_back(&mut v, idx);
 
         let i = 1;
         while (i < 32) {
@@ -33,8 +39,7 @@ module suilend::mock_pyth {
             i = i + 1;
         };
 
-
-        let price_info_obj = price_info::new_price_info_object_for_testing(
+        price_info::new_price_info_object_for_testing(
             price_info::new_price_info(
                 0,
                 0,
@@ -55,9 +60,7 @@ module suilend::mock_pyth {
                 )
             ),
             ctx
-        );
-
-        bag::add(&mut state.price_objs, std::type_name::get<T>(), price_info_obj);
+        )
     }
 
     public fun get_price_obj<T>(state: &PriceState): &PriceInfoObject {
