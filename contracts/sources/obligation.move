@@ -671,12 +671,15 @@ module suilend::obligation {
             max_withdraw_value
         );
 
-        sui::math::min(
-            floor(div(
-                max_withdraw_token_amount,
-                reserve::ctoken_ratio(reserve)
-            )),
-            deposit.deposited_ctoken_amount
+
+        floor(
+            min(
+                decimal::from(deposit.deposited_ctoken_amount),
+                div(
+                    max_withdraw_token_amount,
+                    reserve::ctoken_ratio(reserve)
+                )
+            )
         )
     }
 
