@@ -4,7 +4,7 @@ module suilend::lending_market {
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use std::ascii::{Self};
     use sui::event::{Self};
-    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min};
+    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min, saturating_floor};
     use sui::object_table::{Self, ObjectTable};
     use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
@@ -680,7 +680,7 @@ module suilend::lending_market {
             clock::timestamp_ms(clock) / 1000
         );
 
-        let rate_limiter_max_borrow_amount = floor(reserve::usd_to_token_amount_lower_bound(
+        let rate_limiter_max_borrow_amount = saturating_floor(reserve::usd_to_token_amount_lower_bound(
             reserve, 
             min(remaining_outflow_usd, decimal::from(1_000_000_000))
         ));
