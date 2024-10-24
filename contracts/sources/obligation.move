@@ -45,6 +45,8 @@ module suilend::obligation {
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EEModeNotValidWithCrossMargin: u64 = 9;
     const ENoEmodeConfigForGivenDepositReserve : u64 = 10;
+    const EEModeObligatoinMustOnlyHaveOneDeposit : u64 = 11;
+    const EEModeObligatoinMustOnlyHaveOneBorrow : u64 = 12;
 
     const EInvalidEModeDeposit: u64 = 13;
     const EInvalidEModeBorrow: u64 = 14;
@@ -381,7 +383,7 @@ module suilend::obligation {
         );
 
         if (is_emode) {
-            assert!(vector::length(&obligation.deposits) == 1, EIsolatedAssetViolation);
+            assert!(vector::length(&obligation.deposits) == 1, EEModeObligatoinMustOnlyHaveOneDeposit);
             let target_reserve_index = emode_deposit_reserve_array_index(obligation);
             let deposit = vector::borrow(&obligation.deposits, deposit_index);
             assert!(deposit.reserve_array_index == target_reserve_index, EInvalidEModeDeposit);
@@ -444,38 +446,17 @@ module suilend::obligation {
 
         assert!(is_healthy(obligation), EObligationIsNotHealthy);
 
-        if (isolated(config(borrow_reserve)) || obligation.borrowing_isolated_asset || is_emode) {
+        if (isolated(config(borrow_reserve)) || obligation.borrowing_isolated_asset) {
             assert!(vector::length(&obligation.borrows) == 1, EIsolatedAssetViolation);
         };
 
         if (is_emode) {
+            assert!(vector::length(&obligation.borrows) == 1, EEModeObligatoinMustOnlyHaveOneBorrow);
             let target_reserve_index = emode_borrow_reserve_array_index(obligation);
             let borrow = vector::borrow(&obligation.borrows, borrow_index);
             assert!(borrow.reserve_array_index == target_reserve_index, EInvalidEModeBorrow);
 
-            let emode_deposit_reserve_array_index = emode_deposit_reserve_array_index(obligation);
-
-            let deposit_reserve = vector::borrow(reserves, emode_deposit_reserve_array_index);
-
-            let (open_ltv, close_ltv) = get_ltvs(
-                obligation,
-                deposit_reserve,
-                is_emode,
-            );
-
-            let deposit_index = option::destroy_some(get_single_deposit_array_reserve_if_any(obligation));
-
-            let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
-            let deposit_value = reserve::ctoken_market_value(deposit_reserve, deposit.deposited_ctoken_amount);
-
-            obligation.allowed_borrow_value_usd = mul(
-                reserve::ctoken_market_value_lower_bound(deposit_reserve, deposit.deposited_ctoken_amount),
-                open_ltv,
-            );
-            obligation.unhealthy_borrow_value_usd = mul(
-                deposit_value,
-                close_ltv,
-            );
+            refresh(obligation, reserves, clock);
         };
 
         log_obligation_data(obligation);
@@ -3357,7 +3338,7 @@ module suilend::obligation {
     }
     
     #[test]
-    #[expected_failure(abort_code = EIsolatedAssetViolation)]
+    #[expected_failure(abort_code = EEModeObligatoinMustOnlyHaveOneBorrow)]
     public fun test_emode_multiple_borrows_fail() {
         use sui::test_scenario::{Self};
 
@@ -3412,7 +3393,7 @@ module suilend::obligation {
     }
     
     #[test]
-    #[expected_failure(abort_code = EIsolatedAssetViolation)]
+    #[expected_failure(abort_code = EEModeObligatoinMustOnlyHaveOneDeposit)]
     public fun test_emode_multiple_deposits_fail() {
         use sui::test_scenario::{Self};
 
