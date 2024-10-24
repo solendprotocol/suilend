@@ -1,6 +1,7 @@
 /// parameters for a Reserve.
 module suilend::reserve_config {
     use std::vector::{Self};
+    use std::option::{Self, Option};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
     use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
@@ -15,7 +16,8 @@ module suilend::reserve_config {
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
     const ENoEModeConfigForDepositReserve: u64 = 2;
-    const EBorrowReserveIsNotAnEModePair: u64 = 3;
+    const ENormalOpenLtvBetterThanEModeLtvs: u64 = 3;
+    const ENormalCloseLtvBetterThanEModeLtvs: u64 = 4;
 
     struct EModeKey has copy, store, drop {}
 
@@ -438,6 +440,9 @@ module suilend::reserve_config {
         open_ltv_pct: u8,
         close_ltv_pct: u8,
     ) {
+        assert!(reserve_config.open_ltv_pct < open_ltv_pct, ENormalOpenLtvBetterThanEModeLtvs);
+        assert!(reserve_config.close_ltv_pct < close_ltv_pct, ENormalCloseLtvBetterThanEModeLtvs);
+
         if (!has_emode_config(reserve_config)) {
             bag::add(
                 &mut reserve_config.additional_fields,
@@ -497,17 +502,19 @@ module suilend::reserve_config {
     ): Decimal {
         decimal::from_percent(emode_data.close_ltv_pct)
     }
-
-    public(friend) fun get_emode_data_checked(
+    
+    public(friend) fun try_get_emode_data(
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
-    ): &EModeData {
+    ): Option<EModeData> {
         let emode_config = get_emode_config_checked(reserve_config);
         let has_pair = vec_map::contains(emode_config, reserve_array_index);
 
-        assert!(has_pair, EBorrowReserveIsNotAnEModePair);
-
-        vec_map::get(emode_config, reserve_array_index)
+        if (has_pair) {
+            vec_map::try_get(emode_config, reserve_array_index)
+        } else {
+            option::none()
+        }
     }
 
     // === Tests ==
@@ -738,9 +745,9 @@ module suilend::reserve_config {
         check_emode_validity(&config, &1);
 
         assert!(has_emode_config(&config), 0);
-        let emode_data = get_emode_data_checked(&config, &1);
-        assert_eq(open_ltv_emode(emode_data), decimal::from_percent(60));
-        assert_eq(close_ltv_emode(emode_data), decimal::from_percent(80));
+        let emode_data = option::destroy_some(try_get_emode_data(&config, &1));
+        assert_eq(open_ltv_emode(&emode_data), decimal::from_percent(60));
+        assert_eq(close_ltv_emode(&emode_data), decimal::from_percent(80));
 
         destroy(config);
         test_scenario::end(scenario);
