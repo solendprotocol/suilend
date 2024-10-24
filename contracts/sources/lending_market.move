@@ -358,7 +358,9 @@ module suilend::lending_market {
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
         let origination_fee_amount = borrow_amount_with_fees - balance::value(&receive_balance); 
-        obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
+        obligation::borrow<P>(obligation, &mut lending_market.reserves, reserve_array_index, clock, borrow_amount_with_fees);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
 
         let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
         rate_limiter::process_qty(
@@ -383,9 +385,8 @@ module suilend::lending_market {
     /// Set emode for obligation - T is the deposit coin type
     public fun set_emode<P>(
         lending_market: &mut LendingMarket<P>,
-        deposit_reserve_array_index: u64,
-        borrow_reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -394,13 +395,10 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id
         );
 
-        let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_array_index);
-        let borrow_reserve = vector::borrow(&lending_market.reserves, borrow_reserve_array_index);
-
         obligation::set_emode(
             obligation,
-            deposit_reserve,
-            borrow_reserve,
+            &mut lending_market.reserves,
+            clock,
         );
     }
 
